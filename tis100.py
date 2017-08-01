@@ -31,50 +31,146 @@ class Val(int):
 	def __neg__(self, other):
 		return Val(-int(self))
 
-class Nodes(object):
-	"""The nodes types (first, the abstract)"""
-	class abstractNode(object):
+class Registers(object):
+	"""The various registers"""
+	# todo except acc and bak?
+
+	class abstractRegister(object):
 		pass
 
-	class compute(abstractNode):
-		def __init__(self, code):
+	class up(abstractRegister):
+		pass
+	class right(abstractRegister):
+		pass
+	class down(abstractRegister):
+		pass
+	class left(abstractRegister):
+		pass
+	class any(abstractRegister):
+		pass
+	class none(abstractRegister): # todo is it called none or null?
+		pass
+
+class Nodes(object):
+	"""The nodes types"""
+
+	# Begin abstract nodes
+
+	class abstractNode(object):
+		pass
+	class abstractIoNode(abstractNode):
+		"""Input/output nodes"""
+		pass
+	class abstractTisNode(abstractNode):
+		"""The T21, T30, or damaged nodes"""
+		def __init__(self, index):
+			self._index = index
+			self._registers = {}
+		def __getitem__(self, key):
+			if key in self:
+				return self._registers[key]
+			else:
+				return Val(key)
+				#raise KeyError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
+		def __setitem__(self, key, value):
+			if key in self:
+				self._registers[key] = value
+			else:
+				raise KeyError('key is not valid register for this node type') # todo make better
+		def __contains__(self, key):
+			return key in self._registers
+		def __call__(self, *args, **kwargs):
+			return self.run(*args, **kwargs)
+
+	# Begin IO nodes
+
+	class iNull(abstractIoNode):
+		pass
+	class oNull(abstractIoNode):
+		pass
+	class iStdin(abstractIoNode):
+		pass
+	class oStdout(abstractIoNode):
+		pass
+
+	# Begin TIS nodes
+
+	class compute(abstractTisNode):
+		def __init__(self, index, code):
+			super().__init__(index)
 			self._code = code
+			self._hascode = any([line[1][0] for line in self._code])
+			self._state = 'IDLE'
+			self._ip = -1 # special not-started ip
+			self._registers['acc'] = Val(0)
+			self._registers['bak'] = Val(0)
+			self._registers['up'] = 0
+			self._registers['down'] = 0
+			self._registers['left'] = 0
+			self._registers['right'] = 0
+			self._registers['any'] = 0
+			self._registers['null'] = 0 # todo is it null or none?
 		def __str__(self):
-			s = 'T21 Compute '
+			s = '(%d) T21 Compute ' % (self._index)
 			if self._code:
 				s += '%s...' % (self._code[0],)
 			else:
 				s += 'empty'
 			return s
 
-	class smemory(abstractNode):
-		def __init__(self):
+		def run(self):
+			if not self._hascode:
+				return
+			else:
+				# todo how to handle blocked reads/writes?
+				self._state = 'RUNN' # todo what are the state names?
+				while True:
+					self._ip = (self._ip + 1) % len(self._code)
+					instr = self._code[self._ip][1]
+					if instr[0]:
+						break
+				print('Node %d, executing %s %s' % (self._index, instr[0], ' '.join(instr[1])))
+				instr[0](self, instr[1])
+				print('  acc: %d, bak: %d' % (self['acc'], self['bak']))
+		def jumpLabel(self, label):
+			# todo are labels case sensitive?
+			for i in range(len(self._code)):
+				if self._code[0] == label:
+					self._ip = i
+		def jumpOffset(self, offset):
+			# need to decrement, because we already incremented
+			self._ip = (self._ip + offset - 1) % len(self._code)
+
+	class smemory(abstractTisNode):
+		def __init__(self, index):
+			super().__init__(index)
 			self._stack = []
 		def __str__(self):
-			s = 'T30 Memory  '
+			s = '(%d) T30 Memory  ' % (self._index)
 			if self._stack:
 				s += '%s...' % (' '.join(map(str, self._stack)))
 			else:
 				s += 'empty'
 			return s
 
-	class damaged(abstractNode):
-		def __init__(self):
+		def run(self):
 			pass
+
+	class damaged(abstractTisNode):
+		def __init__(self, index):
+			super().__init__(index)
 		def __str__(self):
-			return 'T00 Damaged'
+			return '(%d) T00 Damaged' % (self._index)
+
+		def run(self):
+			pass
 
 class Operators(object):
-	"""All the operators (first, the abstract)"""
+	"""All the operators"""
 	class abstractOp(object, metaclass=Meta):
 		nargs = -1
-
-		def __init__(self):
-			raise RuntimeError('This class is a namespace -- it should not be instantiated')
-
-		@classmethod
-		def run(cls, node, args):
-			pass
+		def __new__(cls, *args, **kwargs):
+			return cls.run(*args, **kwargs)
 
 	class add(abstractOp):
 		nargs = 1
@@ -82,7 +178,6 @@ class Operators(object):
 		@classmethod
 		def run(cls, node, args):
 			node['acc'] += node[args[0]]
-
 	class jgz(abstractOp):
 		nargs = 1
 
@@ -90,7 +185,6 @@ class Operators(object):
 		def run(cls, node, args):
 			if node['acc'] > 0:
 				node.jumpLabel(args[0])
-
 	class jlz(abstractOp):
 		nargs = 1
 
@@ -98,35 +192,30 @@ class Operators(object):
 		def run(cls, node, args):
 			if node['acc'] < 0:
 				node.jumpLabel(args[0])
-
 	class jmp(abstractOp):
 		nargs = 1
 
 		@classmethod
 		def run(cls, node, args):
 			node.jumpLabel(args[0])
-
 	class mov(abstractOp):
 		nargs = 2
 
 		@classmethod
 		def run(cls, node, args):
-			node[args[1]] = node[args[2]]
-
+			node[args[1]] = node[args[0]]
 	class sav(abstractOp):
 		nargs = 0
 
 		@classmethod
 		def run(cls, node, args):
 			node['bak'] = node['acc']
-
 	class sub(abstractOp):
 		nargs = 1
 
 		@classmethod
 		def run(cls, node, args):
 			node['acc'] -= node[args[0]]
-
 	class swp(abstractOp):
 		nargs = 0
 
@@ -143,12 +232,15 @@ def init():
 	# layout defaults to 3 rows 4 cols, all T21 compute nodes
 	# can be defined via -n 'ccmcccccdmcc'? (c)ompute, (m)emory, (d)amaged
 	# input defaults to stdin on first of top row; unless none, no input
-	# can be defined via -i 'x-xx'? (x)none, (-)stdin (c)har, (s)tdin number, (r)andom number, random (l)ist, random (i)ndex, random (p)ositive, random (n)egative...
+	# can be defined via -i 'x-xx'? (x)none, (-)std(i)n (c)har, (s)tdin number, (r)andom number, random (l)ist, random in(d)ex, random (p)ositive, random (n)egative...
 	# output defaults to stdout on last of bottom row; unless none, no output
-	# can be defined via -o 'xx-x'? (x)none, (-)stdout (c)har, (s)tdout number, (d)rawing...
+	# can be defined via -o 'xx-x'? (x)none, (-)std(o)ut (c)har, (s)tdout number, (g)raphic...
 	# able to use the lua definitions instead? Maybe via Lunatic (https://labix.org/lunatic-python)? (Far in future)
 	#
 	# what happens when multiple stdins/stdouts?
+	# allow top outputs in non-strict mode?
+	# what is the graphical output called?
+	# attempt to infer rows/cols from len(input/output),len(nodes)? what happens if not clean?
 
 	parser = ArgumentParser(usage='%(prog)s [options] <tisfile>', conflict_handler='resolve')
 	# positional args
@@ -157,14 +249,13 @@ def init():
 	parser.add_argument('-c', '--cols', action='store', type=int, default=4, help='column count')
 	parser.add_argument('-h', '--help', action='help', help='Show this help message and exit.')
 	parser.add_argument('-i', '--input', action='store', type=str, default='-xxx', help='input layout')
-	parser.add_argument('-n', '--nodes', action='store', type=str, default='cccc'*4, help='node layout')
+	parser.add_argument('-n', '--nodes', action='store', type=str, default='cccc'*3, help='node layout')
 	parser.add_argument('-o', '--output', action='store', type=str, default='xxx-', help='output layout')
 	parser.add_argument('-r', '--rows', action='store', type=int, default=3, help='row count')
 	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
 	                                       'version number and exit.')
 
 	args = parser.parse_args()
-	print(args)
 
 	assert(args.cols == len(args.input))
 	assert(args.cols*args.rows == len(args.nodes))
@@ -183,7 +274,7 @@ def parseOp(op):
 	return getattr(Operators, op.lower())
 
 def parseArg(arg):
-	return arg.lower()
+	return arg.lower() # todo are labels case sensitive?
 
 def parseLine(line):
 	# now check if line is too long
@@ -225,22 +316,27 @@ def parseProg(prog, args):
 		elif index is not None:
 			code[index].append(parseLine(line))
 		else:
+			# raise exception if in strict mode?
 			pass # line is ignored, it is not assigned to a T21 node
 
-	print(code)
 	nodes = []
-	for nodec in args.nodes:
+	for i,nodec in enumerate(args.nodes):
 		if nodec == 'c': # T21 compute node
-			nodes.append(Nodes.compute(code.pop(0)))
+			nodes.append(Nodes.compute(i, code.pop(0)))
 		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory())
+			nodes.append(Nodes.smemory(i))
 		elif nodec == 'd': # damaged node
-			nodes.append(Nodes.damaged())
+			nodes.append(Nodes.damaged(i))
 		else:
-			raise ValueError("'%s' is not a valid node type." % (nodec))
+			raise ValueError("'%s' is not a supported node type." % (nodec))
 	return nodes
+
+def run(nodes):
+	for t in range(10):
+		for node in nodes:
+			node()
 
 if __name__ == "__main__":
 	prog, args = init()
-	for node in parseProg(prog, args):
-		print(node)
+	nodes = parseProg(prog, args)
+	run(nodes)
