@@ -1,16 +1,19 @@
 #!/usr/bin/python3 -bb
+#author Derek Anderson
 
-import sys
+VERSION = '0.0.0'
 
-COLS = 4
-ROWS = 3
-INPUT = 'x-xx'
-NODES = 'cccc'*ROWS
-OUTPUT= 'xx-x'
+from argparse import ArgumentParser
 
 ###
 #  TIS-100 objects
 ###
+
+class Meta(type):
+	def __str__(self):
+		return self.__name__
+	def __repr__(self):
+		return self.__name__
 
 class Val(int):
 	"""Like int, but clamped to [-999,999]
@@ -28,17 +31,59 @@ class Val(int):
 	def __neg__(self, other):
 		return Val(-int(self))
 
-class Ops(object):
-	"""All the operators"""
+class Nodes(object):
+	"""The nodes types (first, the abstract)"""
+	class abstractNode(object):
+		pass
 
-	class add(object):
+	class compute(abstractNode):
+		def __init__(self, code):
+			self._code = code
+		def __str__(self):
+			s = 'T21 Compute '
+			if self._code:
+				s += '%s...' % (self._code[0],)
+			else:
+				s += 'empty'
+			return s
+
+	class smemory(abstractNode):
+		def __init__(self):
+			self._stack = []
+		def __str__(self):
+			s = 'T30 Memory  '
+			if self._stack:
+				s += '%s...' % (' '.join(map(str, self._stack)))
+			else:
+				s += 'empty'
+			return s
+
+	class damaged(abstractNode):
+		def __init__(self):
+			pass
+		def __str__(self):
+			return 'T00 Damaged'
+
+class Operators(object):
+	"""All the operators (first, the abstract)"""
+	class abstractOp(object, metaclass=Meta):
+		nargs = -1
+
+		def __init__(self):
+			raise RuntimeError('This class is a namespace -- it should not be instantiated')
+
+		@classmethod
+		def run(cls, node, args):
+			pass
+
+	class add(abstractOp):
 		nargs = 1
 
 		@classmethod
 		def run(cls, node, args):
 			node['acc'] += node[args[0]]
 
-	class jgz(object):
+	class jgz(abstractOp):
 		nargs = 1
 
 		@classmethod
@@ -46,28 +91,43 @@ class Ops(object):
 			if node['acc'] > 0:
 				node.jumpLabel(args[0])
 
-	class mov(object):
+	class jlz(abstractOp):
+		nargs = 1
+
+		@classmethod
+		def run(cls, node, args):
+			if node['acc'] < 0:
+				node.jumpLabel(args[0])
+
+	class jmp(abstractOp):
+		nargs = 1
+
+		@classmethod
+		def run(cls, node, args):
+			node.jumpLabel(args[0])
+
+	class mov(abstractOp):
 		nargs = 2
 
 		@classmethod
 		def run(cls, node, args):
 			node[args[1]] = node[args[2]]
 
-	class sav(object):
+	class sav(abstractOp):
 		nargs = 0
 
 		@classmethod
 		def run(cls, node, args):
 			node['bak'] = node['acc']
 
-	class sub(object):
+	class sub(abstractOp):
 		nargs = 1
 
 		@classmethod
 		def run(cls, node, args):
 			node['acc'] -= node[args[0]]
 
-	class swp(object):
+	class swp(abstractOp):
 		nargs = 0
 
 		@classmethod
@@ -82,25 +142,50 @@ def init():
 	# todo:
 	# layout defaults to 3 rows 4 cols, all T21 compute nodes
 	# can be defined via -n 'ccmcccccdmcc'? (c)ompute, (m)emory, (d)amaged
-	# input defaults to stdin on second on top row; unless only 1, use that; unless none, no input
+	# input defaults to stdin on first of top row; unless none, no input
 	# can be defined via -i 'x-xx'? (x)none, (-)stdin (c)har, (s)tdin number, (r)andom number, random (l)ist, random (i)ndex, random (p)ositive, random (n)egative...
-	# output defaults to stdout on second-to-last on bottom row; unless only 1, use that; unless none, no output
+	# output defaults to stdout on last of bottom row; unless none, no output
 	# can be defined via -o 'xx-x'? (x)none, (-)stdout (c)har, (s)tdout number, (d)rawing...
 	# able to use the lua definitions instead? Maybe via Lunatic (https://labix.org/lunatic-python)? (Far in future)
 	#
 	# what happens when multiple stdins/stdouts?
 
-	with open(sys.argv[1], 'r') as f:
-		return f.readlines()
+	parser = ArgumentParser(usage='%(prog)s [options] <tisfile>', conflict_handler='resolve')
+	# positional args
+	parser.add_argument('tisfile', action='store', type=str, nargs='?', metavar='tisfile', help='A TIS-100 program file.')
+	# optional args
+	parser.add_argument('-c', '--cols', action='store', type=int, default=4, help='column count')
+	parser.add_argument('-h', '--help', action='help', help='Show this help message and exit.')
+	parser.add_argument('-i', '--input', action='store', type=str, default='-xxx', help='input layout')
+	parser.add_argument('-n', '--nodes', action='store', type=str, default='cccc'*4, help='node layout')
+	parser.add_argument('-o', '--output', action='store', type=str, default='xxx-', help='output layout')
+	parser.add_argument('-r', '--rows', action='store', type=int, default=3, help='row count')
+	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
+	                                       'version number and exit.')
+
+	args = parser.parse_args()
+	print(args)
+
+	assert(args.cols == len(args.input))
+	assert(args.cols*args.rows == len(args.nodes))
+	assert(args.cols == len(args.output))
+
+	if args.tisfile:
+		with open(args.tisfile, 'r') as f:
+			prog = f.readlines()
+	else:
+		parser.print_help()
+		exit(0)
+
+	return prog, args
 
 def parseOp(op):
-	return Ops.__getattribute__(Ops, op.lower())
+	return getattr(Operators, op.lower())
 
 def parseArg(arg):
 	return arg.lower()
 
 def parseLine(line):
-	print(line)
 	# now check if line is too long
 	code, _, comment = line.partition('#')
 	comment = comment.strip()
@@ -120,11 +205,13 @@ def parseLine(line):
 		args = []
 	return (label, (op, args), comment)
 
-def parseProg(prog):
+def parseProg(prog, args):
 	index = None
-	code = [[] for i in range(ROWS*COLS)]
+	code = [[] for i in range(args.nodes.count('c'))]
 	for line in prog:
-		if line[0] == '@':
+		if line[0] == '\n':
+			pass # line is empty
+		elif line[0] == '@':
 			if index is not None:
 				# now check if previous T21 node had too many lines
 				pass
@@ -139,7 +226,21 @@ def parseProg(prog):
 			code[index].append(parseLine(line))
 		else:
 			pass # line is ignored, it is not assigned to a T21 node
-	return code
+
+	print(code)
+	nodes = []
+	for nodec in args.nodes:
+		if nodec == 'c': # T21 compute node
+			nodes.append(Nodes.compute(code.pop(0)))
+		elif nodec == 'm': # T30 stack memory node
+			nodes.append(Nodes.smemory())
+		elif nodec == 'd': # damaged node
+			nodes.append(Nodes.damaged())
+		else:
+			raise ValueError("'%s' is not a valid node type." % (nodec))
+	return nodes
 
 if __name__ == "__main__":
-	print(parseProg(init()))
+	prog, args = init()
+	for node in parseProg(prog, args):
+		print(node)
