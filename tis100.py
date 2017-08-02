@@ -36,20 +36,73 @@ class Registers(object):
 	# todo except acc and bak?
 
 	class abstractRegister(object):
-		pass
+		def read(self):
+			# Returns Val() if success, None if fail
+			raise RuntimeError('Not yet implemented')
+		def write(self, value):
+			# Returns True if success, None if fail
+			raise RuntimeError('Not yet implemented')
 
+	class acc(abstractRegister):
+		def __init__(self):
+			self._value = Val(0)
+		def read(self):
+			return self._value
+		def write(self, value):
+			self._value = value
+			return True
+	class bak(abstractRegister):
+		def __init__(self):
+			self._value = Val(0)
+		def read(self):
+			raise TISError('Cannot read from BAK')
+		def write(self, value):
+			raise TISError('Cannot write to BAK')
+		def safeRead(self):
+			return self._value
+		def safeWrite(self, value):
+			self._value = value
+			return True
 	class up(abstractRegister):
-		pass
+		def __init__(self, index):
+			self._index = index
+		def read(self):
+			return Val(0) # attemptRead(...)
+		def write(self, value):
+			return True # attemptWrite(...)
 	class right(abstractRegister):
-		pass
+		def __init__(self, index):
+			self._index = index
+		def read(self):
+			return Val(0) # attemptRead(...)
+		def write(self, value):
+			return True # attemptWrite(...)
 	class down(abstractRegister):
-		pass
+		def __init__(self, index):
+			self._index = index
+		def read(self):
+			return Val(0) # attemptRead(...)
+		def write(self, value):
+			return True # attemptWrite(...)
 	class left(abstractRegister):
-		pass
+		def __init__(self, index):
+			self._index = index
+		def read(self):
+			return Val(0) # attemptRead(...)
+		def write(self, value):
+			return True # attemptWrite(...)
 	class any(abstractRegister):
-		pass
-	class none(abstractRegister): # todo is it called none or null?
-		pass
+		def __init__(self, index):
+			self._index = index
+		def read(self):
+			return Val(0) # attemptRead(...)
+		def write(self, value):
+			return True # attemptWrite(...)
+	class nil(abstractRegister):
+		def read(self):
+			return Val(0)
+		def write(self, value):
+			return True
 
 class Nodes(object):
 	"""The nodes types"""
@@ -63,20 +116,32 @@ class Nodes(object):
 		pass
 	class abstractTisNode(abstractNode):
 		"""The T21, T30, or damaged nodes"""
-		def __init__(self, index):
+		def __init__(self, index, fakeindex):
 			self._index = index
+			self._fakeindex = fakeindex
 			self._registers = {}
+			self._portregisters = {}
+			self._registers['up'] = Registers.up(index)
+			self._registers['down'] = Registers.down(index)
+			self._registers['left'] = Registers.left(index)
+			self._registers['right'] = Registers.right(index)
+			self._registers['any'] = Registers.any(index)
+			self._registers['nil'] = Registers.nil()
+			self._registers['acc'] = Registers.acc()
+			self._registers['bak'] = Registers.bak()
 		def __getitem__(self, key):
 			if key in self:
-				return self._registers[key]
+				return self._registers[key].read()
 			else:
-				return Val(key)
-				#raise KeyError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
+				try:
+					return Val(key)
+				except ValueError:
+					raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
 		def __setitem__(self, key, value):
 			if key in self:
-				self._registers[key] = value
+				self._registers[key].write(value)
 			else:
-				raise KeyError('key is not valid register for this node type') # todo make better
+				raise TISError('key is not valid register for this node type') # todo make better
 		def __contains__(self, key):
 			return key in self._registers
 		def __call__(self, *args, **kwargs):
@@ -96,22 +161,14 @@ class Nodes(object):
 	# Begin TIS nodes
 
 	class compute(abstractTisNode):
-		def __init__(self, index, code):
-			super().__init__(index)
+		def __init__(self, index, fakeindex, code):
+			super().__init__(index, fakeindex)
 			self._code = code
 			self._hascode = any([line[1][0] for line in self._code])
 			self._state = 'IDLE'
 			self._ip = -1 # special not-started ip
-			self._registers['acc'] = Val(0)
-			self._registers['bak'] = Val(0)
-			self._registers['up'] = 0
-			self._registers['down'] = 0
-			self._registers['left'] = 0
-			self._registers['right'] = 0
-			self._registers['any'] = 0
-			self._registers['null'] = 0 # todo is it null or none?
 		def __str__(self):
-			s = '(%d) T21 Compute ' % (self._index)
+			s = '%d(%d) T21 Compute ' % (self._fakeindex, self._index)
 			if self._code:
 				s += '%s...' % (self._code[0],)
 			else:
@@ -122,16 +179,16 @@ class Nodes(object):
 			if not self._hascode:
 				return
 			else:
-				# todo how to handle blocked reads/writes?
+				# todo how to handle blocked reads/writes?m try/catch would be good...
 				self._state = 'RUNN' # todo what are the state names?
 				while True:
 					self._ip = (self._ip + 1) % len(self._code)
 					instr = self._code[self._ip][1]
 					if instr[0]:
 						break
-				print('Node %d, executing %s %s' % (self._index, instr[0], ' '.join(instr[1])))
+				print('Node %d(%d), executing %s %s' % (self._fakeindex, self._index, instr[0], ' '.join(instr[1])))
 				instr[0](self, instr[1])
-				print('  acc: %d, bak: %d' % (self['acc'], self['bak']))
+				print('  ip: %d, acc: %d, bak: %d' % (self._ip, self['acc'], self._registers['bak'].safeRead()))
 		def jumpLabel(self, label):
 			# todo are labels case sensitive?
 			for i in range(len(self._code)):
@@ -140,13 +197,21 @@ class Nodes(object):
 		def jumpOffset(self, offset):
 			# need to decrement, because we already incremented
 			self._ip = (self._ip + offset - 1) % len(self._code)
+		def save(self):
+			# safe access to bak
+			self._registers['bak'].safeWrite(self['acc'])
+		def swap(self):
+			# safe access to bak
+			temp = self._registers['bak'].safeRead()
+			self._registers['bak'].safeWrite(self['acc'])
+			node['acc'] = temp
 
 	class smemory(abstractTisNode):
-		def __init__(self, index):
-			super().__init__(index)
+		def __init__(self, index, fakeindex):
+			super().__init__(index, fakeindex)
 			self._stack = []
 		def __str__(self):
-			s = '(%d) T30 Memory  ' % (self._index)
+			s = '%d(%d) T30 Memory  ' % (self._fakeindex, self._index)
 			if self._stack:
 				s += '%s...' % (' '.join(map(str, self._stack)))
 			else:
@@ -157,10 +222,10 @@ class Nodes(object):
 			pass
 
 	class damaged(abstractTisNode):
-		def __init__(self, index):
-			super().__init__(index)
+		def __init__(self, index, fakeindex):
+			super().__init__(index, fakeindex)
 		def __str__(self):
-			return '(%d) T00 Damaged' % (self._index)
+			return '%d(%d) T00 Damaged' % (self._fakeindex, self._index)
 
 		def run(self):
 			pass
@@ -178,6 +243,13 @@ class Operators(object):
 		@classmethod
 		def run(cls, node, args):
 			node['acc'] += node[args[0]]
+	class jez(abstractOp):
+		nargs = 1
+
+		@classmethod
+		def run(cls, node, args):
+			if node['acc'] == 0:
+				node.jumpLabel(args[0])
 	class jgz(abstractOp):
 		nargs = 1
 
@@ -198,6 +270,13 @@ class Operators(object):
 		@classmethod
 		def run(cls, node, args):
 			node.jumpLabel(args[0])
+	class jnz(abstractOp):
+		nargs = 1
+
+		@classmethod
+		def run(cls, node, args):
+			if node['acc'] != 0:
+				node.jumpLabel(args[0])
 	class mov(abstractOp):
 		nargs = 2
 
@@ -209,7 +288,7 @@ class Operators(object):
 
 		@classmethod
 		def run(cls, node, args):
-			node['bak'] = node['acc']
+			node.save()
 	class sub(abstractOp):
 		nargs = 1
 
@@ -221,7 +300,7 @@ class Operators(object):
 
 		@classmethod
 		def run(cls, node, args):
-			node['acc'], node['bak'] = node['bak'], node['acc']
+			node.swap()
 
 ###
 #  Parser & init
@@ -274,7 +353,7 @@ def parseOp(op):
 	return getattr(Operators, op.lower())
 
 def parseArg(arg):
-	return arg.lower() # todo are labels case sensitive?
+	return arg.strip(',').lower() # todo are labels case sensitive?
 
 def parseLine(line):
 	# now check if line is too long
@@ -290,7 +369,7 @@ def parseLine(line):
 		args = [parseArg(arg) for arg in cmd[1:]]
 		# now validate args based on op
 		if len(args) != op.nargs:
-			raise InputError('Incorrect number of arguments for %s' % (op.__name__))
+			raise TISError('Incorrect number of arguments for command %s, expected %d' % (op.__name__, op.nargs))
 	else:
 		op = None
 		args = []
@@ -320,13 +399,15 @@ def parseProg(prog, args):
 			pass # line is ignored, it is not assigned to a T21 node
 
 	nodes = []
+	fi = 0
 	for i,nodec in enumerate(args.nodes):
 		if nodec == 'c': # T21 compute node
-			nodes.append(Nodes.compute(i, code.pop(0)))
+			nodes.append(Nodes.compute(i, fi, code[fi]))
+			fi += 1
 		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory(i))
+			nodes.append(Nodes.smemory(i, '.'))
 		elif nodec == 'd': # damaged node
-			nodes.append(Nodes.damaged(i))
+			nodes.append(Nodes.damaged(i, '.'))
 		else:
 			raise ValueError("'%s' is not a supported node type." % (nodec))
 	return nodes
