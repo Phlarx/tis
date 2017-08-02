@@ -33,26 +33,85 @@ class Val(int):
 
 class Registers(object):
 	"""The various registers"""
-	# todo except acc and bak?
+	_readlist = {}
+	_writelist = {}
+
+	@staticmethod
+	def _getLocation(cfg, index, dir):
+		# returns r/w location, or None if out of bounds
+		row = index // cfg.cols
+		col = index % cfg.cols
+		if dir == 'up':
+			row -= 1
+			if row < 0:
+				return None
+		elif dir == 'down':
+			row += 1
+			if row >= cfg.rows:
+				return None
+		elif dir == 'left':
+			col -= 1
+			if col < 0:
+				return None
+		elif dir == 'right':
+			col += 1
+			if col >= cfg.cols:
+				return None
+		elif dir == 'any':
+			return None # todo figure out how to handle 'any'
+		else:
+			raise RuntimeError('%s is not a valid read/write direction' % (dir,))
+		return (index, row*cfg.cols + col)
+	@staticmethod
+	def attemptRead(node, dir):
+		location = Registers._getLocation(node._cfg, node._index, dir)
+		if location is not None:
+			location = tuple(reversed(location))
+			if location in Registers._writelist:
+				target = Registers._writelist.pop(location)
+				target[0].resolveWrite(dir)
+				node.resolveRead(dir, target[1])
+				return True
+			else:
+				assert(location not in Registers._readlist)
+				Registers._readlist[location] = (node,)
+				return False
+	@staticmethod
+	def attemptWrite(node, dir, value):
+		location = Registers._getLocation(node._cfg, node._index, dir)
+		if location is not None:
+			if location in Registers._readlist:
+				target = Registers._readlist.pop(location)
+				node.resolveWrite(dir)
+				target[0].resolveRead(dir, value)
+				return True
+			else:
+				assert(location not in Registers._writelist)
+				Registers._writelist[location] = (node, value)
+				return False
 
 	class abstractRegister(object):
+		def __init__(self, node):
+			self._node = node
+			self._cfg = node._cfg
+			self._index = node._index
 		def read(self):
-			# Returns Val() if success, None if fail
 			raise RuntimeError('Not yet implemented')
 		def write(self, value):
-			# Returns True if success, None if fail
 			raise RuntimeError('Not yet implemented')
 
 	class acc(abstractRegister):
-		def __init__(self):
+		def __init__(self, node):
+			super().__init__(node)
 			self._value = Val(0)
 		def read(self):
 			return self._value
 		def write(self, value):
 			self._value = value
-			return True
+			return None
 	class bak(abstractRegister):
-		def __init__(self):
+		def __init__(self, node):
+			super().__init__(node)
 			self._value = Val(0)
 		def read(self):
 			raise TISError('Cannot read from BAK')
@@ -62,47 +121,37 @@ class Registers(object):
 			return self._value
 		def safeWrite(self, value):
 			self._value = value
-			return True
+			return None
 	class up(abstractRegister):
-		def __init__(self, index):
-			self._index = index
 		def read(self):
-			return Val(0) # attemptRead(...)
+			return Registers.attemptRead(self._node, 'up')
 		def write(self, value):
-			return True # attemptWrite(...)
+			return Registers.attemptWrite(self._node, 'up', value)
 	class right(abstractRegister):
-		def __init__(self, index):
-			self._index = index
 		def read(self):
-			return Val(0) # attemptRead(...)
+			return Registers.attemptRead(self._node, 'right')
 		def write(self, value):
-			return True # attemptWrite(...)
+			return Registers.attemptWrite(self._node, 'right', value)
 	class down(abstractRegister):
-		def __init__(self, index):
-			self._index = index
 		def read(self):
-			return Val(0) # attemptRead(...)
+			return Registers.attemptRead(self._node, 'down')
 		def write(self, value):
-			return True # attemptWrite(...)
+			return Registers.attemptWrite(self._node, 'down', value)
 	class left(abstractRegister):
-		def __init__(self, index):
-			self._index = index
 		def read(self):
-			return Val(0) # attemptRead(...)
+			return Registers.attemptRead(self._node, 'left')
 		def write(self, value):
-			return True # attemptWrite(...)
+			return Registers.attemptWrite(self._node, 'left', value)
 	class any(abstractRegister):
-		def __init__(self, index):
-			self._index = index
 		def read(self):
-			return Val(0) # attemptRead(...)
+			return Registers.attemptRead(self._node, 'any')
 		def write(self, value):
-			return True # attemptWrite(...)
+			return Registers.attemptWrite(self._node, 'any', value)
 	class nil(abstractRegister):
 		def read(self):
 			return Val(0)
 		def write(self, value):
-			return True
+			return None
 
 class Nodes(object):
 	"""The nodes types"""
@@ -116,22 +165,27 @@ class Nodes(object):
 		pass
 	class abstractTisNode(abstractNode):
 		"""The T21, T30, or damaged nodes"""
-		def __init__(self, index, fakeindex):
+		def __init__(self, cfg, index, fakeindex):
+			self._cfg = cfg
 			self._index = index
 			self._fakeindex = fakeindex
 			self._registers = {}
 			self._portregisters = {}
-			self._registers['up'] = Registers.up(index)
-			self._registers['down'] = Registers.down(index)
-			self._registers['left'] = Registers.left(index)
-			self._registers['right'] = Registers.right(index)
-			self._registers['any'] = Registers.any(index)
-			self._registers['nil'] = Registers.nil()
-			self._registers['acc'] = Registers.acc()
-			self._registers['bak'] = Registers.bak()
+			self._registers['up'] = Registers.up(self)
+			self._registers['down'] = Registers.down(self)
+			self._registers['left'] = Registers.left(self)
+			self._registers['right'] = Registers.right(self)
+			self._registers['any'] = Registers.any(self)
+			self._registers['nil'] = Registers.nil(self)
+			self._registers['acc'] = Registers.acc(self)
+			self._registers['bak'] = Registers.bak(self)
 		def __getitem__(self, key):
 			if key in self:
-				return self._registers[key].read()
+				self.setRead(key, self._code[self._ip][1][0].resolve)
+				ret = self._registers[key].read()
+				if ret not in [True, False]:
+					# we handle resolution now
+					self.resolveRead(key, ret)
 			else:
 				try:
 					return Val(key)
@@ -139,7 +193,11 @@ class Nodes(object):
 					raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
 		def __setitem__(self, key, value):
 			if key in self:
-				self._registers[key].write(value)
+				self.setWrite(key)
+				ret = self._registers[key].write(value)
+				if ret not in [True, False]:
+					# we handle resolution now
+					self.resolveWrite(key)
 			else:
 				raise TISError('key is not valid register for this node type') # todo make better
 		def __contains__(self, key):
@@ -161,12 +219,13 @@ class Nodes(object):
 	# Begin TIS nodes
 
 	class compute(abstractTisNode):
-		def __init__(self, index, fakeindex, code):
-			super().__init__(index, fakeindex)
+		def __init__(self, cfg, index, fakeindex, code):
+			super().__init__(cfg, index, fakeindex)
 			self._code = code
 			self._hascode = any([line[1][0] for line in self._code])
 			self._state = 'IDLE'
 			self._ip = -1 # special not-started ip
+			self._pending = None
 		def __str__(self):
 			s = '%d(%d) T21 Compute ' % (self._fakeindex, self._index)
 			if self._code:
@@ -178,6 +237,8 @@ class Nodes(object):
 		def run(self):
 			if not self._hascode:
 				return
+			elif self._pending:
+				self._state = 'WAIT' # todo what are the state names?
 			else:
 				# todo how to handle blocked reads/writes?m try/catch would be good...
 				self._state = 'RUNN' # todo what are the state names?
@@ -195,7 +256,7 @@ class Nodes(object):
 				if self._code[0] == label:
 					self._ip = i
 		def jumpOffset(self, offset):
-			# need to decrement, because we already incremented
+			# need to decrement, because we increment as first step
 			self._ip = (self._ip + offset - 1) % len(self._code)
 		def save(self):
 			# safe access to bak
@@ -205,10 +266,23 @@ class Nodes(object):
 			temp = self._registers['bak'].safeRead()
 			self._registers['bak'].safeWrite(self['acc'])
 			node['acc'] = temp
+		def setRead(self, dir, action):
+			self._pending = (dir, action)
+		def setWrite(self, dir):
+			self._pending = (dir, None)
+		def resolveRead(self, dir, result):
+			assert(self._pending[0] == dir)
+			assert(self._pending[1] is not None)
+			self._pending[1](result)
+			self._pending = None
+		def resolveWrite(self, dir):
+			assert(self._pending[0] == dir)
+			assert(self._pending[1] is None)
+			self._pending = None
 
 	class smemory(abstractTisNode):
-		def __init__(self, index, fakeindex):
-			super().__init__(index, fakeindex)
+		def __init__(self, cfg, index, fakeindex):
+			super().__init__(cfg, index, fakeindex)
 			self._stack = []
 		def __str__(self):
 			s = '%d(%d) T30 Memory  ' % (self._fakeindex, self._index)
@@ -222,8 +296,8 @@ class Nodes(object):
 			pass
 
 	class damaged(abstractTisNode):
-		def __init__(self, index, fakeindex):
-			super().__init__(index, fakeindex)
+		def __init__(self, cfg, index, fakeindex):
+			super().__init__(cfg, index, fakeindex)
 		def __str__(self):
 			return '%d(%d) T00 Damaged' % (self._fakeindex, self._index)
 
@@ -334,20 +408,20 @@ def init():
 	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
 	                                       'version number and exit.')
 
-	args = parser.parse_args()
+	cfg = parser.parse_args()
 
-	assert(args.cols == len(args.input))
-	assert(args.cols*args.rows == len(args.nodes))
-	assert(args.cols == len(args.output))
+	assert(cfg.cols == len(cfg.input))
+	assert(cfg.cols*cfg.rows == len(cfg.nodes))
+	assert(cfg.cols == len(cfg.output))
 
-	if args.tisfile:
-		with open(args.tisfile, 'r') as f:
+	if cfg.tisfile:
+		with open(cfg.tisfile, 'r') as f:
 			prog = f.readlines()
 	else:
 		parser.print_help()
 		exit(0)
 
-	return prog, args
+	return prog, cfg
 
 def parseOp(op):
 	return getattr(Operators, op.lower())
@@ -375,9 +449,9 @@ def parseLine(line):
 		args = []
 	return (label, (op, args), comment)
 
-def parseProg(prog, args):
+def parseProg(prog, cfg):
 	index = None
-	code = [[] for i in range(args.nodes.count('c'))]
+	code = [[] for i in range(cfg.nodes.count('c'))]
 	for line in prog:
 		if line[0] == '\n':
 			pass # line is empty
@@ -400,14 +474,15 @@ def parseProg(prog, args):
 
 	nodes = []
 	fi = 0
-	for i,nodec in enumerate(args.nodes):
+	# todo insert input and output row as well
+	for i,nodec in enumerate(cfg.nodes):
 		if nodec == 'c': # T21 compute node
-			nodes.append(Nodes.compute(i, fi, code[fi]))
+			nodes.append(Nodes.compute(cfg, i, fi, code[fi]))
 			fi += 1
 		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory(i, '.'))
+			nodes.append(Nodes.smemory(cfg, i, '.'))
 		elif nodec == 'd': # damaged node
-			nodes.append(Nodes.damaged(i, '.'))
+			nodes.append(Nodes.damaged(cfg, i, '.'))
 		else:
 			raise ValueError("'%s' is not a supported node type." % (nodec))
 	return nodes
@@ -418,6 +493,6 @@ def run(nodes):
 			node()
 
 if __name__ == "__main__":
-	prog, args = init()
-	nodes = parseProg(prog, args)
+	prog, cfg = init()
+	nodes = parseProg(prog, cfg)
 	run(nodes)
