@@ -5,6 +5,15 @@ VERSION = '0.0.0'
 
 from argparse import ArgumentParser
 
+"""---------
+Notes:
+
+perhaps use the threading module for the nodes (https://docs.python.org/3/library/threading.html)
+and the barrier constructs to sync reads/writes (https://docs.python.org/3/library/threading.html#threading.Barrier)
+that might make things cooperate better
+will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
+---------"""
+
 ###
 #  TIS-100 objects
 ###
