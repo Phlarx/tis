@@ -3,6 +3,8 @@
 
 VERSION = '0.0.0'
 
+import threading
+
 from argparse import ArgumentParser
 
 """---------
@@ -39,6 +41,43 @@ class Val(int):
 		return Val(sorted((int(self) - int(other), self._MAX))[0])
 	def __neg__(self, other):
 		return Val(-int(self))
+
+class Register(threading.Event):
+	"""Like threading._Event, but use a value instead of a bool"""
+
+	def __init__(self, verbose=None):
+		threading._Verbose.__init__(verbose)
+		self.__cond = threading.Condition(threading.Lock())
+		self.__value = None
+
+	def isSet(self):
+		return self.__value is not None
+
+	is_set = isSet
+
+	def set(self, value):
+		self.__cond.acquire()
+		try:
+			self.__value = True
+			self.__cond.notify_all()
+		finally:
+			self.__cond.release()
+
+	def clear(self):
+		self.__cond.acquire()
+		try:
+			self.__value = None
+		finally:
+			self.__cond.release()
+
+	def wait(self, timeout=None):
+		self.__cond.acquire()
+		try:
+			if self.__value is None:
+				self.__cond.wait(timeout)
+			return self.__value
+		finally:
+			self.__cond.release()
 
 class Registers(object):
 	"""The various registers"""
@@ -168,15 +207,22 @@ class Nodes(object):
 	# Begin abstract nodes
 
 	class abstractNode(object):
-		pass
+		"""All node types"""
+		def __init__(self, cfg, locks, index):
+			self._cfg = cfg
+			self._index = index
+			self._locks = locks
+		def run(self):
+			self._locks['tick'].wait()
+			if self.runInternal:
+				self.runInternal()
 	class abstractIoNode(abstractNode):
 		"""Input/output nodes"""
 		pass
 	class abstractTisNode(abstractNode):
 		"""The T21, T30, or damaged nodes"""
-		def __init__(self, cfg, index, fakeindex):
-			self._cfg = cfg
-			self._index = index
+		def __init__(self, cfg, locks, index, fakeindex):
+			super().__init__(cfg, locks, index)
 			self._fakeindex = fakeindex
 			self._registers = {}
 			self._portregisters = {}
@@ -211,8 +257,6 @@ class Nodes(object):
 				raise TISError('key is not valid register for this node type') # todo make better
 		def __contains__(self, key):
 			return key in self._registers
-		def __call__(self, *args, **kwargs):
-			return self.run(*args, **kwargs)
 
 	# Begin IO nodes
 
@@ -228,8 +272,8 @@ class Nodes(object):
 	# Begin TIS nodes
 
 	class compute(abstractTisNode):
-		def __init__(self, cfg, index, fakeindex, code):
-			super().__init__(cfg, index, fakeindex)
+		def __init__(self, cfg, locks, index, fakeindex, code):
+			super().__init__(cfg, locks, index, fakeindex)
 			self._code = code
 			self._hascode = any([line[1][0] for line in self._code])
 			self._state = 'IDLE'
@@ -243,7 +287,7 @@ class Nodes(object):
 				s += 'empty'
 			return s
 
-		def run(self):
+		def runInternal(self):
 			if not self._hascode:
 				return
 			elif self._pending:
@@ -290,28 +334,22 @@ class Nodes(object):
 			self._pending = None
 
 	class smemory(abstractTisNode):
-		def __init__(self, cfg, index, fakeindex):
-			super().__init__(cfg, index, fakeindex)
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index, 'm')
 			self._stack = []
 		def __str__(self):
-			s = '%d(%d) T30 Memory  ' % (self._fakeindex, self._index)
+			s = '%s(%d) T30 Memory  ' % (self._fakeindex, self._index)
 			if self._stack:
 				s += '%s...' % (' '.join(map(str, self._stack)))
 			else:
 				s += 'empty'
 			return s
 
-		def run(self):
-			pass
-
 	class damaged(abstractTisNode):
-		def __init__(self, cfg, index, fakeindex):
-			super().__init__(cfg, index, fakeindex)
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index, 'd')
 		def __str__(self):
-			return '%d(%d) T00 Damaged' % (self._fakeindex, self._index)
-
-		def run(self):
-			pass
+			return '%s(%d) T00 Damaged' % (self._fakeindex, self._index)
 
 class Operators(object):
 	"""All the operators"""
@@ -481,27 +519,47 @@ def parseProg(prog, cfg):
 			# raise exception if in strict mode?
 			pass # line is ignored, it is not assigned to a T21 node
 
+	# overall tick barrier
+	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows)} # todo cols*(rows+2)
+	for row in range(cfg.rows+1):
+		for col in range(cfg.cols):
+			# up/down r/w events
+			key = (row*cfg.cols + col, (row+1)*cfg.cols + col)
+			locks[key] = Register()
+			rkey = tuple(reversed(key))
+			locks[rkey] = Register()
+	for row in range(cfg.rows+2):
+		for col in range(cfg.cols-1):
+			# left/right r/w events
+			key = (row*cfg.cols + col, row*cfg.cols + col+1)
+			locks[key] = Register()
+			rkey = tuple(reversed(key))
+			locks[rkey] = Register()
+
 	nodes = []
 	fi = 0
 	# todo insert input and output row as well
 	for i,nodec in enumerate(cfg.nodes):
 		if nodec == 'c': # T21 compute node
-			nodes.append(Nodes.compute(cfg, i, fi, code[fi]))
+			nodes.append(Nodes.compute(cfg, locks, i, fi, code[fi]))
 			fi += 1
 		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory(cfg, i, '.'))
+			nodes.append(Nodes.smemory(cfg, locks, i))
 		elif nodec == 'd': # damaged node
-			nodes.append(Nodes.damaged(cfg, i, '.'))
+			nodes.append(Nodes.damaged(cfg, locks, i))
 		else:
 			raise ValueError("'%s' is not a supported node type." % (nodec))
-	return nodes
+	return nodes, locks
 
-def run(nodes):
-	for t in range(10):
-		for node in nodes:
-			node()
+def start(nodes):
+	threads = set()
+	for node in nodes:
+		thr = threading.Thread(target=node.run, name='Node-{i}'.format(i=node._index))
+		thr.start()
+		threads.add(thr)
+	return threads
 
 if __name__ == "__main__":
 	prog, cfg = init()
-	nodes = parseProg(prog, cfg)
-	run(nodes)
+	nodes, locks = parseProg(prog, cfg)
+	threads = start(nodes)
