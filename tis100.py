@@ -16,6 +16,8 @@ that might make things cooperate better
 will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
 ---------"""
 
+GLOBAL_TIMEOUT = 2 # seconds
+
 ###
 #  TIS-100 objects
 ###
@@ -43,46 +45,43 @@ class Val(int):
 		return Val(-int(self))
 
 class Register(threading.Event):
-	"""Like threading._Event, but use a value instead of a bool"""
+	"""Like threading.Event, but use a value instead of a bool"""
 
-	def __init__(self, verbose=None):
-		threading._Verbose.__init__(verbose)
-		self.__cond = threading.Condition(threading.Lock())
-		self.__value = None
+	def __init__(self):
+		super().__init__()
+		self._value = None
 
 	def isSet(self):
-		return self.__value is not None
+		return self._value is not None
 
 	is_set = isSet
 
 	def set(self, value):
-		self.__cond.acquire()
+		self._cond.acquire()
 		try:
-			self.__value = True
-			self.__cond.notify_all()
+			self._value = True
+			self._cond.notify_all()
 		finally:
-			self.__cond.release()
+			self._cond.release()
 
 	def clear(self):
-		self.__cond.acquire()
+		self._cond.acquire()
 		try:
-			self.__value = None
+			self._value = None
 		finally:
-			self.__cond.release()
+			self._cond.release()
 
 	def wait(self, timeout=None):
-		self.__cond.acquire()
+		self._cond.acquire()
 		try:
-			if self.__value is None:
-				self.__cond.wait(timeout)
-			return self.__value
+			if self._value is None:
+				self._cond.wait(timeout)
+			return self._value
 		finally:
-			self.__cond.release()
+			self._cond.release()
 
 class Registers(object):
 	"""The various registers"""
-	_readlist = {}
-	_writelist = {}
 
 	@staticmethod
 	def _getLocation(cfg, index, dir):
@@ -110,43 +109,67 @@ class Registers(object):
 		else:
 			raise RuntimeError('%s is not a valid read/write direction' % (dir,))
 		return (index, row*cfg.cols + col)
-	@staticmethod
-	def attemptRead(node, dir):
-		location = Registers._getLocation(node._cfg, node._index, dir)
-		if location is not None:
-			location = tuple(reversed(location))
-			if location in Registers._writelist:
-				target = Registers._writelist.pop(location)
-				target[0].resolveWrite(dir)
-				node.resolveRead(dir, target[1])
-				return True
-			else:
-				assert(location not in Registers._readlist)
-				Registers._readlist[location] = (node,)
-				return False
-	@staticmethod
-	def attemptWrite(node, dir, value):
-		location = Registers._getLocation(node._cfg, node._index, dir)
-		if location is not None:
-			if location in Registers._readlist:
-				target = Registers._readlist.pop(location)
-				node.resolveWrite(dir)
-				target[0].resolveRead(dir, value)
-				return True
-			else:
-				assert(location not in Registers._writelist)
-				Registers._writelist[location] = (node, value)
-				return False
 
 	class abstractRegister(object):
 		def __init__(self, node):
 			self._node = node
 			self._cfg = node._cfg
 			self._index = node._index
+			self._locks = node._locks
 		def read(self):
-			raise RuntimeError('Not yet implemented')
+			raise RuntimeError('Not yet implemented') # Should be overridden
 		def write(self, value):
-			raise RuntimeError('Not yet implemented')
+			raise RuntimeError('Not yet implemented') # Should be overridden
+		def attemptRead(self, dir):
+			location = Registers._getLocation(self._cfg, self._index, dir)
+			if location is not None:
+				location = tuple(reversed(location))
+				print("Node %d waiting on node %d" % (location[1], location[0]))
+				value = self._locks[location].wait()
+				print("Node %d no longer waiting on node %d" % (location[1], location[0]))
+				self._locks[location].clear()
+				return value
+		def attemptWrite(self, dir, value):
+			location = Registers._getLocation(self._cfg, self._index, dir)
+			if location is not None:
+				assert(not self._locks[location].isSet())
+				print("Node %d sending value to node %d" % (location[0], location[1]))
+				self._locks[location].set(value)
+		def attemptReadAny(self): # todo find a non-busywait method. or maybe only one lock per r/w, rather than 4?
+			dirs = ['up', 'right', 'down', 'left']
+			i = 0
+			print("Node %d waiting on any node" % (self._index,))
+			while True:
+				dir = dirs[i%len(dirs)]
+				i += 1
+				location = Registers._getLocation(self._cfg, self._index, dir)
+				if location is not None:
+					location = tuple(reversed(location))
+					if self._locks[location].isSet():
+						value = self._locks[location].wait()
+						self._locks[location].clear()
+						return value
+			print("Node %d no longer waiting on any node" % (self._index,))
+		def attemptWriteAny(self, value): # this is incorrect
+			dirs = ['up', 'right', 'down', 'left']
+			print("Node %d sending value to any node" % (self._index,))
+			for dir in dirs:
+				location = Registers._getLocation(self._cfg, self._index, dir)
+				if location is not None:
+					assert(not self._locks[location].isSet())
+					self._locks[location].set(value)
+			i = 0
+			while True:
+				dir = dirs[i%len(dirs)]
+				i += 1
+				location = Registers._getLocation(self._cfg, self._index, dir)
+				if location is not None:
+					if not self._locks[location].isSet():
+						break
+			for dir in dirs:
+				location = Registers._getLocation(self._cfg, self._index, dir)
+				if location is not None:
+					self._locks[location].clear()
 
 	class acc(abstractRegister):
 		def __init__(self, node):
@@ -172,29 +195,29 @@ class Registers(object):
 			return None
 	class up(abstractRegister):
 		def read(self):
-			return Registers.attemptRead(self._node, 'up')
+			return self.attemptRead('up')
 		def write(self, value):
-			return Registers.attemptWrite(self._node, 'up', value)
+			return self.attemptWrite('up', value)
 	class right(abstractRegister):
 		def read(self):
-			return Registers.attemptRead(self._node, 'right')
+			return self.attemptRead('right')
 		def write(self, value):
-			return Registers.attemptWrite(self._node, 'right', value)
+			return self.attemptWrite('right', value)
 	class down(abstractRegister):
 		def read(self):
-			return Registers.attemptRead(self._node, 'down')
+			return self.attemptRead('down')
 		def write(self, value):
-			return Registers.attemptWrite(self._node, 'down', value)
+			return self.attemptWrite('down', value)
 	class left(abstractRegister):
 		def read(self):
-			return Registers.attemptRead(self._node, 'left')
+			return self.attemptRead('left')
 		def write(self, value):
-			return Registers.attemptWrite(self._node, 'left', value)
+			return self.attemptWrite('left', value)
 	class any(abstractRegister):
 		def read(self):
-			return Registers.attemptRead(self._node, 'any')
+			return self.attemptReadAny()
 		def write(self, value):
-			return Registers.attemptWrite(self._node, 'any', value)
+			return self.attemptWriteAny(value)
 	class nil(abstractRegister):
 		def read(self):
 			return Val(0)
@@ -213,9 +236,10 @@ class Nodes(object):
 			self._index = index
 			self._locks = locks
 		def run(self):
-			self._locks['tick'].wait()
-			if self.runInternal:
-				self.runInternal()
+			while True:
+				self._locks['tick'].wait()
+				if self.runInternal:
+					self.runInternal()
 	class abstractIoNode(abstractNode):
 		"""Input/output nodes"""
 		pass
@@ -236,11 +260,7 @@ class Nodes(object):
 			self._registers['bak'] = Registers.bak(self)
 		def __getitem__(self, key):
 			if key in self:
-				self.setRead(key, self._code[self._ip][1][0].resolve)
-				ret = self._registers[key].read()
-				if ret not in [True, False]:
-					# we handle resolution now
-					self.resolveRead(key, ret)
+				return self._registers[key].read()
 			else:
 				try:
 					return Val(key)
@@ -248,13 +268,9 @@ class Nodes(object):
 					raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
 		def __setitem__(self, key, value):
 			if key in self:
-				self.setWrite(key)
 				ret = self._registers[key].write(value)
-				if ret not in [True, False]:
-					# we handle resolution now
-					self.resolveWrite(key)
 			else:
-				raise TISError('key is not valid register for this node type') # todo make better
+				raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
 		def __contains__(self, key):
 			return key in self._registers
 
@@ -293,7 +309,7 @@ class Nodes(object):
 			elif self._pending:
 				self._state = 'WAIT' # todo what are the state names?
 			else:
-				# todo how to handle blocked reads/writes?m try/catch would be good...
+				# todo how to handle blocked reads/writes? try/catch could be good...
 				self._state = 'RUNN' # todo what are the state names?
 				while True:
 					self._ip = (self._ip + 1) % len(self._code)
@@ -520,17 +536,17 @@ def parseProg(prog, cfg):
 			pass # line is ignored, it is not assigned to a T21 node
 
 	# overall tick barrier
-	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows)} # todo cols*(rows+2)
+	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows, timeout=GLOBAL_TIMEOUT)} # todo cols*(rows+2)
 	for row in range(cfg.rows+1):
 		for col in range(cfg.cols):
-			# up/down r/w events
+			# up/down r/w registers
 			key = (row*cfg.cols + col, (row+1)*cfg.cols + col)
 			locks[key] = Register()
 			rkey = tuple(reversed(key))
 			locks[rkey] = Register()
 	for row in range(cfg.rows+2):
 		for col in range(cfg.cols-1):
-			# left/right r/w events
+			# left/right r/w registers
 			key = (row*cfg.cols + col, row*cfg.cols + col+1)
 			locks[key] = Register()
 			rkey = tuple(reversed(key))
@@ -563,3 +579,4 @@ if __name__ == "__main__":
 	prog, cfg = init()
 	nodes, locks = parseProg(prog, cfg)
 	threads = start(nodes)
+	print('Active threads: %d' % (threading.active_count(),))
