@@ -16,7 +16,8 @@ that might make things cooperate better
 will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
 ---------"""
 
-GLOBAL_TIMEOUT = 2 # seconds
+BARRIER_TIMEOUT = 2 # seconds
+READ_TIMEOUT = 1 # seconds
 
 ###
 #  TIS-100 objects
@@ -125,8 +126,8 @@ class Registers(object):
 			if location is not None:
 				location = tuple(reversed(location))
 				print("Node %d waiting on node %d" % (location[1], location[0]))
-				value = self._locks[location].wait()
-				print("Node %d no longer waiting on node %d" % (location[1], location[0]))
+				value = self._locks[location].wait(timeout=READ_TIMEOUT)
+				print("Node %d no longer waiting on node %d (got value %d)" % (location[1], location[0], value))
 				self._locks[location].clear()
 				return value
 		def attemptWrite(self, dir, value):
@@ -146,10 +147,11 @@ class Registers(object):
 				if location is not None:
 					location = tuple(reversed(location))
 					if self._locks[location].isSet():
-						value = self._locks[location].wait()
+						print("Node %d waiting on found node %d" % (location[1], location[0]))
+						value = self._locks[location].wait(timeout=READ_TIMEOUT)
 						self._locks[location].clear()
+						print("Node %d no longer waiting on any node (got value %d)" % (self._index, value))
 						return value
-			print("Node %d no longer waiting on any node" % (self._index,))
 		def attemptWriteAny(self, value): # this is incorrect
 			dirs = ['up', 'right', 'down', 'left']
 			print("Node %d sending value to any node" % (self._index,))
@@ -165,6 +167,7 @@ class Registers(object):
 				location = Registers._getLocation(self._cfg, self._index, dir)
 				if location is not None:
 					if not self._locks[location].isSet():
+						print("Node %d found sent value to node %d" % (location[0], location[1]))
 						break
 			for dir in dirs:
 				location = Registers._getLocation(self._cfg, self._index, dir)
@@ -237,8 +240,9 @@ class Nodes(object):
 			self._locks = locks
 		def run(self):
 			while True:
-				self._locks['tick'].wait()
-				if self.runInternal:
+				print('Tick barrier has %d+1 of %d parties' % (self._locks['tick'].n_waiting, self._locks['tick'].parties))
+				self._locks['tick'].wait() # todo how to handle nodes waiting on register lock?
+				if 'runInternal' in dir(self):
 					self.runInternal()
 	class abstractIoNode(abstractNode):
 		"""Input/output nodes"""
@@ -249,7 +253,6 @@ class Nodes(object):
 			super().__init__(cfg, locks, index)
 			self._fakeindex = fakeindex
 			self._registers = {}
-			self._portregisters = {}
 			self._registers['up'] = Registers.up(self)
 			self._registers['down'] = Registers.down(self)
 			self._registers['left'] = Registers.left(self)
@@ -277,13 +280,21 @@ class Nodes(object):
 	# Begin IO nodes
 
 	class iNull(abstractIoNode):
-		pass
+		pass # actually pass! yay!
 	class oNull(abstractIoNode):
-		pass
+		pass # actually pass! yay!
 	class iStdin(abstractIoNode):
-		pass
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index)
+			self._register = Registers.down(self)
+		def runInternal(self):
+			self._register.write(Val(0))
 	class oStdout(abstractIoNode):
-		pass
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index)
+			self._register = Registers.up(self)
+		def runInternal(self):
+			self._register.read()
 
 	# Begin TIS nodes
 
@@ -296,7 +307,7 @@ class Nodes(object):
 			self._ip = -1 # special not-started ip
 			self._pending = None
 		def __str__(self):
-			s = '%d(%d) T21 Compute ' % (self._fakeindex, self._index)
+			s = '%d(%d) T21 Compute ' % (self._index, self._fakeindex)
 			if self._code:
 				s += '%s...' % (self._code[0],)
 			else:
@@ -316,7 +327,7 @@ class Nodes(object):
 					instr = self._code[self._ip][1]
 					if instr[0]:
 						break
-				print('Node %d(%d), executing %s %s' % (self._fakeindex, self._index, instr[0], ' '.join(instr[1])))
+				print('Node %d(%d), executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
 				instr[0](self, instr[1])
 				print('  ip: %d, acc: %d, bak: %d' % (self._ip, self['acc'], self._registers['bak'].safeRead()))
 		def jumpLabel(self, label):
@@ -354,7 +365,7 @@ class Nodes(object):
 			super().__init__(cfg, locks, index, 'm')
 			self._stack = []
 		def __str__(self):
-			s = '%s(%d) T30 Memory  ' % (self._fakeindex, self._index)
+			s = '%s(%d) T30 Memory  ' % (self._index, self._fakeindex)
 			if self._stack:
 				s += '%s...' % (' '.join(map(str, self._stack)))
 			else:
@@ -365,7 +376,7 @@ class Nodes(object):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index, 'd')
 		def __str__(self):
-			return '%s(%d) T00 Damaged' % (self._fakeindex, self._index)
+			return '%s(%d) T00 Damaged' % (self._index, self._fakeindex)
 
 class Operators(object):
 	"""All the operators"""
@@ -473,7 +484,7 @@ def init():
 
 	cfg = parser.parse_args()
 
-	assert(cfg.cols == len(cfg.input))
+	assert(cfg.cols == len(cfg.input)) # todo make more dynamic
 	assert(cfg.cols*cfg.rows == len(cfg.nodes))
 	assert(cfg.cols == len(cfg.output))
 
@@ -515,7 +526,7 @@ def parseLine(line):
 def parseProg(prog, cfg):
 	index = None
 	code = [[] for i in range(cfg.nodes.count('c'))]
-	for line in prog:
+	for line in prog: # todo this whole thing here:
 		if line[0] == '\n':
 			pass # line is empty
 		elif line[0] == '@':
@@ -536,7 +547,10 @@ def parseProg(prog, cfg):
 			pass # line is ignored, it is not assigned to a T21 node
 
 	# overall tick barrier
-	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows, timeout=GLOBAL_TIMEOUT)} # todo cols*(rows+2)
+	def reportTick():
+		print('Starting tick!')
+	print('Barrier will wait for %d nodes' % (cfg.cols*(cfg.rows+2),))
+	locks = {'tick': threading.Barrier(cfg.cols*(cfg.rows+2), action=reportTick, timeout=BARRIER_TIMEOUT)}
 	for row in range(cfg.rows+1):
 		for col in range(cfg.cols):
 			# up/down r/w registers
@@ -544,7 +558,7 @@ def parseProg(prog, cfg):
 			locks[key] = Register()
 			rkey = tuple(reversed(key))
 			locks[rkey] = Register()
-	for row in range(cfg.rows+2):
+	for row in range(1, cfg.rows+1): # don't need horizontal registers for i/o rows
 		for col in range(cfg.cols-1):
 			# left/right r/w registers
 			key = (row*cfg.cols + col, row*cfg.cols + col+1)
@@ -555,14 +569,24 @@ def parseProg(prog, cfg):
 	nodes = []
 	fi = 0
 	# todo insert input and output row as well
-	for i,nodec in enumerate(cfg.nodes):
+	for i,nodec in enumerate(cfg.input + cfg.nodes + cfg.output):
 		if nodec == 'c': # T21 compute node
 			nodes.append(Nodes.compute(cfg, locks, i, fi, code[fi]))
 			fi += 1
-		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory(cfg, locks, i))
 		elif nodec == 'd': # damaged node
 			nodes.append(Nodes.damaged(cfg, locks, i))
+		elif nodec == 'm': # T30 stack memory node
+			nodes.append(Nodes.smemory(cfg, locks, i))
+		elif nodec == 'x': # Null i/o node
+			if i < cfg.cols:
+				nodes.append(Nodes.iNull(cfg, locks, i))
+			else:
+				nodes.append(Nodes.oNull(cfg, locks, i))
+		elif nodec == '-': # Std i/o node
+			if i < cfg.cols:
+				nodes.append(Nodes.iStdin(cfg, locks, i))
+			else:
+				nodes.append(Nodes.oStdout(cfg, locks, i))
 		else:
 			raise ValueError("'%s' is not a supported node type." % (nodec))
 	return nodes, locks
@@ -578,5 +602,6 @@ def start(nodes):
 if __name__ == "__main__":
 	prog, cfg = init()
 	nodes, locks = parseProg(prog, cfg)
+	print('Number of nodes: %d' % (len(nodes),))
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
