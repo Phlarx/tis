@@ -14,6 +14,10 @@ perhaps use the threading module for the nodes (https://docs.python.org/3/librar
 and the barrier constructs to sync reads/writes (https://docs.python.org/3/library/threading.html#threading.Barrier)
 that might make things cooperate better
 will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
+
+
+Just use regular events for the registers... then have a single syncho'd outgoing register to hold the value in each node (this may make 'any' more natural to handle)
+Also, get rid of the Registers class. Overcomplicates things.
 ---------"""
 
 BARRIER_TIMEOUT = 2 # seconds
@@ -46,7 +50,8 @@ class Val(int):
 		return Val(-int(self))
 
 class Register(threading.Event):
-	"""Like threading.Event, but use a value instead of a bool"""
+	"""Like threading.Event, but use a value instead of a bool
+	Also, has some tis-specific utilities thrown in"""
 
 	def __init__(self):
 		super().__init__()
@@ -60,7 +65,7 @@ class Register(threading.Event):
 	def set(self, value):
 		self._cond.acquire()
 		try:
-			self._value = True
+			self._value = value
 			self._cond.notify_all()
 		finally:
 			self._cond.release()
@@ -81,6 +86,27 @@ class Register(threading.Event):
 		finally:
 			self._cond.release()
 
+	# begin tis utilities
+	def read(self, timeout=None):
+		# combine wait and clear
+		self._cond.acquire()
+		try:
+			if self._value is None:
+				self._cond.wait(timeout)
+			val = self._value
+			self._value = None
+			return val
+		finally:
+			self._cond.release()
+
+	def write(self, val):
+		self._cond.acquire()
+		try:
+			self._value = val
+			self._cond.notify_all()
+		finally:
+			self._cond.release()
+
 class Registers(object):
 	"""The various registers"""
 
@@ -96,6 +122,7 @@ class Registers(object):
 		elif dir == 'down':
 			row += 1
 			if row >= cfg.rows:
+				print('too many rows: %d >= %d' % (row, cfg.rows))
 				return None
 		elif dir == 'left':
 			col -= 1
@@ -109,126 +136,39 @@ class Registers(object):
 			return None # todo figure out how to handle 'any'
 		else:
 			raise RuntimeError('%s is not a valid read/write direction' % (dir,))
-		return (index, row*cfg.cols + col)
-
-	class abstractRegister(object):
-		def __init__(self, node):
-			self._node = node
-			self._cfg = node._cfg
-			self._index = node._index
-			self._locks = node._locks
-		def read(self):
-			raise RuntimeError('Not yet implemented') # Should be overridden
-		def write(self, value):
-			raise RuntimeError('Not yet implemented') # Should be overridden
-		def attemptRead(self, dir):
-			location = Registers._getLocation(self._cfg, self._index, dir)
-			if location is not None:
-				location = tuple(reversed(location))
-				print("Node %d waiting on node %d" % (location[1], location[0]))
-				value = self._locks[location].wait(timeout=READ_TIMEOUT)
-				print("Node %d no longer waiting on node %d (got value %d)" % (location[1], location[0], value))
-				self._locks[location].clear()
-				return value
-		def attemptWrite(self, dir, value):
-			location = Registers._getLocation(self._cfg, self._index, dir)
-			if location is not None:
-				assert(not self._locks[location].isSet())
-				print("Node %d sending value to node %d" % (location[0], location[1]))
-				self._locks[location].set(value)
-		def attemptReadAny(self): # todo find a non-busywait method. or maybe only one lock per r/w, rather than 4?
-			dirs = ['up', 'right', 'down', 'left']
-			i = 0
-			print("Node %d waiting on any node" % (self._index,))
-			while True:
-				dir = dirs[i%len(dirs)]
-				i += 1
-				location = Registers._getLocation(self._cfg, self._index, dir)
-				if location is not None:
-					location = tuple(reversed(location))
-					if self._locks[location].isSet():
-						print("Node %d waiting on found node %d" % (location[1], location[0]))
-						value = self._locks[location].wait(timeout=READ_TIMEOUT)
-						self._locks[location].clear()
-						print("Node %d no longer waiting on any node (got value %d)" % (self._index, value))
-						return value
-		def attemptWriteAny(self, value): # this is incorrect
-			dirs = ['up', 'right', 'down', 'left']
-			print("Node %d sending value to any node" % (self._index,))
-			for dir in dirs:
-				location = Registers._getLocation(self._cfg, self._index, dir)
-				if location is not None:
-					assert(not self._locks[location].isSet())
-					self._locks[location].set(value)
-			i = 0
-			while True:
-				dir = dirs[i%len(dirs)]
-				i += 1
-				location = Registers._getLocation(self._cfg, self._index, dir)
-				if location is not None:
-					if not self._locks[location].isSet():
-						print("Node %d found sent value to node %d" % (location[0], location[1]))
-						break
-			for dir in dirs:
-				location = Registers._getLocation(self._cfg, self._index, dir)
-				if location is not None:
-					self._locks[location].clear()
-
-	class acc(abstractRegister):
-		def __init__(self, node):
-			super().__init__(node)
-			self._value = Val(0)
-		def read(self):
-			return self._value
-		def write(self, value):
-			self._value = value
-			return None
-	class bak(abstractRegister):
-		def __init__(self, node):
-			super().__init__(node)
-			self._value = Val(0)
-		def read(self):
-			raise TISError('Cannot read from BAK')
-		def write(self, value):
-			raise TISError('Cannot write to BAK')
-		def safeRead(self):
-			return self._value
-		def safeWrite(self, value):
-			self._value = value
-			return None
-	class up(abstractRegister):
-		def read(self):
-			return self.attemptRead('up')
-		def write(self, value):
-			return self.attemptWrite('up', value)
-	class right(abstractRegister):
-		def read(self):
-			return self.attemptRead('right')
-		def write(self, value):
-			return self.attemptWrite('right', value)
-	class down(abstractRegister):
-		def read(self):
-			return self.attemptRead('down')
-		def write(self, value):
-			return self.attemptWrite('down', value)
-	class left(abstractRegister):
-		def read(self):
-			return self.attemptRead('left')
-		def write(self, value):
-			return self.attemptWrite('left', value)
-	class any(abstractRegister):
-		def read(self):
-			return self.attemptReadAny()
-		def write(self, value):
-			return self.attemptWriteAny(value)
-	class nil(abstractRegister):
-		def read(self):
-			return Val(0)
-		def write(self, value):
-			return None
+		return frozenset((index, row*cfg.cols + col))
 
 class Nodes(object):
 	"""The nodes types"""
+
+	opposite = {'up':'down',
+	             'down':'up',
+	             'left':'right',
+	             'right':'left'}
+
+	@staticmethod
+	def findNeighbors(node):
+		neighbors = {} # todo convert to namedtuple
+		row = node._index // node._cfg.cols
+		col = node._index % node._cfg.cols
+		if row > 0:
+			neighbors['up'] = node._cfg.lookup(node._index-node._cfg.cols)
+		else:
+			neighbors['up'] = None
+		if row+1 < node._cfg.rows:
+			neighbors['down'] = node._cfg.lookup(node._index+node._cfg.cols)
+		else:
+			neighbors['down'] = None
+		if col > 0:
+			neighbors['left'] = node._cfg.lookup(node._index-1)
+		else:
+			neighbors['left'] = None
+		if col+1 < node._cfg.cols:
+			neighbors['right'] = node._cfg.lookup(node._index+1)
+		else:
+			neighbors['right'] = None
+		return neighbors
+
 
 	# Begin abstract nodes
 
@@ -238,12 +178,19 @@ class Nodes(object):
 			self._cfg = cfg
 			self._index = index
 			self._locks = locks
+			self._neighbors = {} # todo conver to namedtuple
 		def run(self):
+			self._neighbors = Nodes.findNeighbors(self)
 			while True:
 				print('Tick barrier has %d+1 of %d parties' % (self._locks['tick'].n_waiting, self._locks['tick'].parties))
 				self._locks['tick'].wait() # todo how to handle nodes waiting on register lock?
 				if 'runInternal' in dir(self):
 					self.runInternal()
+		def writePort(self, register, value):
+			raise TISError("This node attempted to write, when it can't.") # todo dynamicize
+		def readPort(self, register):
+			return None
+
 	class abstractIoNode(abstractNode):
 		"""Input/output nodes"""
 		pass
@@ -252,30 +199,68 @@ class Nodes(object):
 		def __init__(self, cfg, locks, index, fakeindex):
 			super().__init__(cfg, locks, index)
 			self._fakeindex = fakeindex
-			self._registers = {}
-			self._registers['up'] = Registers.up(self)
-			self._registers['down'] = Registers.down(self)
-			self._registers['left'] = Registers.left(self)
-			self._registers['right'] = Registers.right(self)
-			self._registers['any'] = Registers.any(self)
-			self._registers['nil'] = Registers.nil(self)
-			self._registers['acc'] = Registers.acc(self)
-			self._registers['bak'] = Registers.bak(self)
+			self._acc = Val(0)
+			self._bak = Val(0)
+			self._outLock = threading.Lock()
+			self._outValue = None # guarded by _outLock
+			self._outRegister = None # guarded by _outLock
 		def __getitem__(self, key):
-			if key in self:
-				return self._registers[key].read()
+			try:
+				return Val(key)
+			except ValueError:
+				pass
+			if key == 'nil':
+				return Val(0)
+			elif key == 'acc':
+				return self._acc
+			elif key == 'bak':
+				raise TISError('Cannot read from BAK directly') # todo list node idx
+			elif key in self._neighbors and self._neighbors[key] is not None:
+				return self._neighbors[key].readPort(Nodes.opposite[key])
+			elif key == 'any':
+				return Val(0) # todo how to do this?
 			else:
-				try:
-					return Val(key)
-				except ValueError:
-					raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
+				raise TISError("'%s' is not valid source register for a %s node" % (key, self.__class__.__name__)) # todo suggest out-of-bounds too
 		def __setitem__(self, key, value):
-			if key in self:
-				ret = self._registers[key].write(value)
+			if key == 'nil':
+				pass
+			elif key == 'acc':
+				self._acc = value
+			elif key == 'bak':
+				raise TISError('Cannot write to BAK directly') # todo list node idx
+			elif key in self and self._neighbors[key] is not None:
+				self.writePort(key, value)
+			elif key == 'any':
+				pass # todo how to do this?
 			else:
-				raise TISError("'%s' is not valid register for a %s node" % (key, self.__class__.__name__))
-		def __contains__(self, key):
-			return key in self._registers
+				raise TISError("'%s' is not valid destination register for a %s node" % (key, self.__class__.__name__)) # todo suggest out-of-bounds too
+		#def __contains__(self, key):
+		#	return (key in ['nil', 'acc', 'bak', 'any']) or (key in self._neighbors)
+		def writePort(self, register, value):
+			self._outLock.acquire()
+			try:
+				assert(self._outValue is None)
+				assert(self._outRegister is None)
+				self._outValue = value
+				self._outRegister = register
+				# todo notify any waiting neighbors?
+			finally:
+				self._outLock.release()
+		def readPort(self, register):
+			# called by neighbors
+			self._outLock.acquire()
+			try:
+				if self._outRegister == None:
+					return None # todo non-blocking wait for notify? have special values for notyet, notset, notyours?
+				elif self._outRegister == 'any' or self._outRegister == register:
+					ret = self._outValue
+					self._outValue = None
+					self._outRegister = None
+					return ret
+				else:
+					return None
+			finally:
+				self._outLock.release()
 
 	# Begin IO nodes
 
@@ -286,15 +271,15 @@ class Nodes(object):
 	class iStdin(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
-			self._register = Registers.down(self)
-		def runInternal(self):
-			self._register.write(Val(0))
+		def readPort(self, register):
+			# called by neighbors
+			assert(register == 'down')
+			return Val(0)
 	class oStdout(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
-			self._register = Registers.up(self)
 		def runInternal(self):
-			self._register.read()
+			print('Output pseudonode %d received value %s' % (self._index, self._neighbors['up'].readPort('down')))
 
 	# Begin TIS nodes
 
@@ -305,7 +290,6 @@ class Nodes(object):
 			self._hascode = any([line[1][0] for line in self._code])
 			self._state = 'IDLE'
 			self._ip = -1 # special not-started ip
-			self._pending = None
 		def __str__(self):
 			s = '%d(%d) T21 Compute ' % (self._index, self._fakeindex)
 			if self._code:
@@ -317,8 +301,6 @@ class Nodes(object):
 		def runInternal(self):
 			if not self._hascode:
 				return
-			elif self._pending:
-				self._state = 'WAIT' # todo what are the state names?
 			else:
 				# todo how to handle blocked reads/writes? try/catch could be good...
 				self._state = 'RUNN' # todo what are the state names?
@@ -329,7 +311,7 @@ class Nodes(object):
 						break
 				print('Node %d(%d), executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
 				instr[0](self, instr[1])
-				print('  ip: %d, acc: %d, bak: %d' % (self._ip, self['acc'], self._registers['bak'].safeRead()))
+				print('  ip: %d, acc: %d, bak: %d' % (self._ip, self._acc, self._bak))
 		def jumpLabel(self, label):
 			# todo are labels case sensitive?
 			for i in range(len(self._code)):
@@ -340,25 +322,10 @@ class Nodes(object):
 			self._ip = (self._ip + offset - 1) % len(self._code)
 		def save(self):
 			# safe access to bak
-			self._registers['bak'].safeWrite(self['acc'])
+			self._bak = self._acc
 		def swap(self):
 			# safe access to bak
-			temp = self._registers['bak'].safeRead()
-			self._registers['bak'].safeWrite(self['acc'])
-			node['acc'] = temp
-		def setRead(self, dir, action):
-			self._pending = (dir, action)
-		def setWrite(self, dir):
-			self._pending = (dir, None)
-		def resolveRead(self, dir, result):
-			assert(self._pending[0] == dir)
-			assert(self._pending[1] is not None)
-			self._pending[1](result)
-			self._pending = None
-		def resolveWrite(self, dir):
-			assert(self._pending[0] == dir)
-			assert(self._pending[1] is None)
-			self._pending = None
+			self._acc, self._bak = self._bak, self._acc
 
 	class smemory(abstractTisNode):
 		def __init__(self, cfg, locks, index):
@@ -483,10 +450,11 @@ def init():
 	                                       'version number and exit.')
 
 	cfg = parser.parse_args()
+	cfg.rows += 2 # for i/o rows
 
 	assert(cfg.cols == len(cfg.input)) # todo make more dynamic
-	assert(cfg.cols*cfg.rows == len(cfg.nodes))
 	assert(cfg.cols == len(cfg.output))
+	assert(cfg.cols*cfg.rows == len(cfg.input+cfg.nodes+cfg.output))
 
 	if cfg.tisfile:
 		with open(cfg.tisfile, 'r') as f:
@@ -549,22 +517,18 @@ def parseProg(prog, cfg):
 	# overall tick barrier
 	def reportTick():
 		print('Starting tick!')
-	print('Barrier will wait for %d nodes' % (cfg.cols*(cfg.rows+2),))
-	locks = {'tick': threading.Barrier(cfg.cols*(cfg.rows+2), action=reportTick, timeout=BARRIER_TIMEOUT)}
-	for row in range(cfg.rows+1):
+	print('Barrier will wait for %d nodes, plus master' % (cfg.cols*cfg.rows,))
+	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=reportTick, timeout=BARRIER_TIMEOUT)}
+	for row in range(cfg.rows-1):
 		for col in range(cfg.cols):
 			# up/down r/w registers
-			key = (row*cfg.cols + col, (row+1)*cfg.cols + col)
+			key = frozenset((row*cfg.cols + col, (row+1)*cfg.cols + col))
 			locks[key] = Register()
-			rkey = tuple(reversed(key))
-			locks[rkey] = Register()
-	for row in range(1, cfg.rows+1): # don't need horizontal registers for i/o rows
+	for row in range(1, cfg.rows-1): # don't need horizontal registers for i/o rows
 		for col in range(cfg.cols-1):
 			# left/right r/w registers
-			key = (row*cfg.cols + col, row*cfg.cols + col+1)
+			key = frozenset((row*cfg.cols + col, row*cfg.cols + col+1))
 			locks[key] = Register()
-			rkey = tuple(reversed(key))
-			locks[rkey] = Register()
 
 	nodes = []
 	fi = 0
@@ -589,6 +553,7 @@ def parseProg(prog, cfg):
 				nodes.append(Nodes.oStdout(cfg, locks, i))
 		else:
 			raise ValueError("'%s' is not a supported node type." % (nodec))
+	cfg.lookup = lambda idx: nodes[idx]
 	return nodes, locks
 
 def start(nodes):
@@ -603,5 +568,10 @@ if __name__ == "__main__":
 	prog, cfg = init()
 	nodes, locks = parseProg(prog, cfg)
 	print('Number of nodes: %d' % (len(nodes),))
+	print('List of locks: %r' % (locks,))
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
+	for i in range(20):
+		locks['tick'].wait()
+	for thr in threads:
+		thr.join(5)
