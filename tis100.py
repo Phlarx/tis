@@ -1,8 +1,9 @@
 #!/usr/bin/python3 -bb
 #author Derek Anderson
 
-VERSION = '0.0.0'
+VERSION = '0.0.1'
 
+import sys
 import threading
 
 from argparse import ArgumentParser
@@ -26,6 +27,9 @@ READ_TIMEOUT = 1 # seconds
 ###
 #  TIS-100 objects
 ###
+
+class TISError(Exception):
+	pass
 
 class Meta(type):
 	def __str__(self):
@@ -142,9 +146,9 @@ class Nodes(object):
 	"""The nodes types"""
 
 	opposite = {'up':'down',
-	             'down':'up',
-	             'left':'right',
-	             'right':'left'}
+	            'down':'up',
+	            'left':'right',
+	            'right':'left'}
 
 	@staticmethod
 	def findNeighbors(node):
@@ -182,10 +186,13 @@ class Nodes(object):
 		def run(self):
 			self._neighbors = Nodes.findNeighbors(self)
 			while True:
-				print('Tick barrier has %d+1 of %d parties' % (self._locks['tick'].n_waiting, self._locks['tick'].parties))
+				#print('Node %d: Tick barrier has %d+1 of %d parties' % (self._index, self._locks['tick'].n_waiting, self._locks['tick'].parties))
 				self._locks['tick'].wait() # todo how to handle nodes waiting on register lock?
+				if self._locks['shutting_down'].isSet():
+					break
 				if 'runInternal' in dir(self):
 					self.runInternal()
+			# todo cleanup?
 		def writePort(self, register, value):
 			raise TISError("This node attempted to write, when it can't.") # todo dynamicize
 		def readPort(self, register):
@@ -201,10 +208,11 @@ class Nodes(object):
 			self._fakeindex = fakeindex
 			self._acc = Val(0)
 			self._bak = Val(0)
-			self._outLock = threading.Lock()
+			self._outLock = threading.Condition(threading.Lock())
 			self._outValue = None # guarded by _outLock
 			self._outRegister = None # guarded by _outLock
 		def __getitem__(self, key):
+			print('Node %d: reading from register %s' % (self._index, key))
 			try:
 				return Val(key)
 			except ValueError:
@@ -222,13 +230,14 @@ class Nodes(object):
 			else:
 				raise TISError("'%s' is not valid source register for a %s node" % (key, self.__class__.__name__)) # todo suggest out-of-bounds too
 		def __setitem__(self, key, value):
+			print('Node %d: writing to register %s (value %r)' % (self._index, key, value))
 			if key == 'nil':
 				pass
 			elif key == 'acc':
 				self._acc = value
 			elif key == 'bak':
 				raise TISError('Cannot write to BAK directly') # todo list node idx
-			elif key in self and self._neighbors[key] is not None:
+			elif key in self._neighbors and self._neighbors[key] is not None:
 				self.writePort(key, value)
 			elif key == 'any':
 				pass # todo how to do this?
@@ -251,14 +260,20 @@ class Nodes(object):
 			self._outLock.acquire()
 			try:
 				if self._outRegister == None:
-					return None # todo non-blocking wait for notify? have special values for notyet, notset, notyours?
-				elif self._outRegister == 'any' or self._outRegister == register:
+					self._outLock.wait(READ_TIMEOUT) # todo non-blocking wait for notify? have special values for notyet, notset, notyours?
+				if self._outRegister == 'any' or self._outRegister == register:
 					ret = self._outValue
 					self._outValue = None
 					self._outRegister = None
 					return ret
 				else:
 					return None
+			finally:
+				self._outLock.release()
+		def finalizeTick(self):
+			self._outLock.acquire()
+			try:
+				self._outLock.notify_all()
 			finally:
 				self._outLock.release()
 
@@ -274,12 +289,21 @@ class Nodes(object):
 		def readPort(self, register):
 			# called by neighbors
 			assert(register == 'down')
-			return Val(0)
+			inchar = sys.stdin.buffer.read(1)
+			if len(inchar) == 0:
+				value = Val(0)
+			else:
+				value = Val(ord(inchar))
+			return value
 	class oStdout(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
 		def runInternal(self):
-			print('Output pseudonode %d received value %s' % (self._index, self._neighbors['up'].readPort('down')))
+			value = self._neighbors['up'].readPort('down')
+			if value is None:
+				print('Node %d: output node is waiting' % (self._index,))
+			else:
+				print('Node %d: output received value:    --->    %s' % (self._index, value))
 
 	# Begin TIS nodes
 
@@ -309,14 +333,18 @@ class Nodes(object):
 					instr = self._code[self._ip][1]
 					if instr[0]:
 						break
-				print('Node %d(%d), executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
+				print('Node %d(%d): executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
 				instr[0](self, instr[1])
-				print('  ip: %d, acc: %d, bak: %d' % (self._ip, self._acc, self._bak))
+				print('Node %d:     ip: %d, acc: %d, bak: %d' % (self._index, self._ip, self._acc, self._bak))
+			self.finalizeTick() # let any waiting nodes know we are done
 		def jumpLabel(self, label):
 			# todo are labels case sensitive?
 			for i in range(len(self._code)):
-				if self._code[0] == label:
+				if self._code[i][0] == label:
 					self._ip = i
+					break
+			else:
+				raise TISError('Node %d: Label %s not found' % (self._index, label))
 		def jumpOffset(self, offset):
 			# need to decrement, because we increment as first step
 			self._ip = (self._ip + offset - 1) % len(self._code)
@@ -477,6 +505,7 @@ def parseLine(line):
 	comment = comment.strip()
 	# now check if line w/o comment is too long
 	label, _, cmd = tuple(code.rpartition(':'))
+	label = label.lower() # todo are labels case sensitive?
 	# now validate label
 	cmd = cmd.split()
 	if cmd:
@@ -516,9 +545,10 @@ def parseProg(prog, cfg):
 
 	# overall tick barrier
 	def reportTick():
-		print('Starting tick!')
+		print('Starting tick!') # tick number?
 	print('Barrier will wait for %d nodes, plus master' % (cfg.cols*cfg.rows,))
-	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=reportTick, timeout=BARRIER_TIMEOUT)}
+	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=reportTick, timeout=BARRIER_TIMEOUT),
+	         'shutting_down': threading.Event()}
 	for row in range(cfg.rows-1):
 		for col in range(cfg.cols):
 			# up/down r/w registers
@@ -571,7 +601,18 @@ if __name__ == "__main__":
 	print('List of locks: %r' % (locks,))
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
-	for i in range(20):
-		locks['tick'].wait()
+	interrupted = False
+	for i in range(500):
+		try:
+			locks['tick'].wait()
+			if interrupted:
+				break
+		except KeyboardInterrupt:
+			if interrupted:
+				raise
+			else:
+				interrupted = True
+				locks['shutting_down'].set()
+				print('Shutting down...')
 	for thr in threads:
 		thr.join(5)
