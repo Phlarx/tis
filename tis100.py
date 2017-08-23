@@ -11,13 +11,16 @@ from argparse import ArgumentParser
 """---------
 Notes:
 
-will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
+List of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
+
+Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
 
 Just use regular events for the registers... then have a single syncho'd outgoing register to hold the value in each node (this may make 'any' more natural to handle)
 
 Multi-source input is multiple line of file
 
 When input is exhausted, it blocks (like real tio)
+Need a way to determine when all nodes are in WAIT (input done, nothing's still happening).
 ---------"""
 
 BARRIER_TIMEOUT = 2 # seconds
@@ -51,64 +54,6 @@ class Val(int):
 		return Val(sorted((int(self) - int(other), self._MAX))[0])
 	def __neg__(self, other):
 		return Val(-int(self))
-
-class Register(threading.Event):
-	"""Like threading.Event, but use a value instead of a bool
-	Also, has some tis-specific utilities thrown in"""
-
-	def __init__(self):
-		super().__init__()
-		self._value = None
-
-	def isSet(self):
-		return self._value is not None
-
-	is_set = isSet
-
-	def set(self, value):
-		self._cond.acquire()
-		try:
-			self._value = value
-			self._cond.notify_all()
-		finally:
-			self._cond.release()
-
-	def clear(self):
-		self._cond.acquire()
-		try:
-			self._value = None
-		finally:
-			self._cond.release()
-
-	def wait(self, timeout=None):
-		self._cond.acquire()
-		try:
-			if self._value is None:
-				self._cond.wait(timeout)
-			return self._value
-		finally:
-			self._cond.release()
-
-	# begin tis utilities
-	def read(self, timeout=None):
-		# combine wait and clear
-		self._cond.acquire()
-		try:
-			if self._value is None:
-				self._cond.wait(timeout)
-			val = self._value
-			self._value = None
-			return val
-		finally:
-			self._cond.release()
-
-	def write(self, val):
-		self._cond.acquire()
-		try:
-			self._value = val
-			self._cond.notify_all()
-		finally:
-			self._cond.release()
 
 class Nodes(object):
 	"""The nodes types"""
@@ -150,13 +95,14 @@ class Nodes(object):
 			self._cfg = cfg
 			self._index = index
 			self._locks = locks
+			self._state = 'IDLE'
 			self._neighbors = {} # todo conver to namedtuple
 		def run(self):
 			self._neighbors = Nodes.findNeighbors(self)
 			while True:
 				#print('Node %d: Tick barrier has %d+1 of %d parties' % (self._index, self._locks['tick'].n_waiting, self._locks['tick'].parties))
 				self._locks['tick'].wait() # todo how to handle nodes waiting on register lock?
-				if self._locks['shutting_down'].isSet():
+				if self._locks['shutdown'].isSet():
 					break
 				if 'runInternal' in dir(self):
 					self.runInternal()
@@ -280,7 +226,6 @@ class Nodes(object):
 			super().__init__(cfg, locks, index, fakeindex)
 			self._code = code
 			self._hascode = any([line[1][0] for line in self._code])
-			self._state = 'IDLE'
 			self._ip = -1 # special not-started ip
 		def __str__(self):
 			s = '%d(%d) T21 Compute ' % (self._index, self._fakeindex)
@@ -467,6 +412,7 @@ def parseOp(op):
 def parseArg(arg):
 	return arg.strip(',').lower() # todo are labels case sensitive?
 
+# todo handle line modifiers: @, !..., where do they live, what do they mean, etc?
 def parseLine(line):
 	# now check if line is too long
 	code, _, comment = line.partition('#')
@@ -511,22 +457,15 @@ def parseProg(prog, cfg):
 			# raise exception if in strict mode?
 			pass # line is ignored, it is not assigned to a T21 node
 
-	# overall tick barrier
+	# Create tick barrier and shutdown event
+	tick = -1
 	def reportTick():
-		print('Starting tick!') # tick number?
+		# todo check here if all nodes are either idle or blocked?
+		tick += 1
+		print('Starting tick %d!' % (tick,))
 	print('Barrier will wait for %d nodes, plus master' % (cfg.cols*cfg.rows,))
 	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=reportTick, timeout=BARRIER_TIMEOUT),
-	         'shutting_down': threading.Event()}
-	for row in range(cfg.rows-1):
-		for col in range(cfg.cols):
-			# up/down r/w registers
-			key = frozenset((row*cfg.cols + col, (row+1)*cfg.cols + col))
-			locks[key] = Register()
-	for row in range(1, cfg.rows-1): # don't need horizontal registers for i/o rows
-		for col in range(cfg.cols-1):
-			# left/right r/w registers
-			key = frozenset((row*cfg.cols + col, row*cfg.cols + col+1))
-			locks[key] = Register()
+	         'shutdown': threading.Event()}
 
 	nodes = []
 	fi = 0
@@ -573,14 +512,14 @@ if __name__ == "__main__":
 	for i in range(500):
 		try:
 			locks['tick'].wait()
-			if interrupted:
+			if locks['shutdown'].isSet():
 				break
 		except KeyboardInterrupt:
 			if interrupted:
 				raise
 			else:
 				interrupted = True
-				locks['shutting_down'].set()
+				locks['shutdown'].set()
 				print('Shutting down...')
 	for thr in threads:
 		thr.join(5)
