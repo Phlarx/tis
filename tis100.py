@@ -11,14 +11,13 @@ from argparse import ArgumentParser
 """---------
 Notes:
 
-perhaps use the threading module for the nodes (https://docs.python.org/3/library/threading.html)
-and the barrier constructs to sync reads/writes (https://docs.python.org/3/library/threading.html#threading.Barrier)
-that might make things cooperate better
 will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
 
-
 Just use regular events for the registers... then have a single syncho'd outgoing register to hold the value in each node (this may make 'any' more natural to handle)
-Also, get rid of the Registers class. Overcomplicates things.
+
+Multi-source input is multiple line of file
+
+When input is exhausted, it blocks (like real tio)
 ---------"""
 
 BARRIER_TIMEOUT = 2 # seconds
@@ -110,37 +109,6 @@ class Register(threading.Event):
 			self._cond.notify_all()
 		finally:
 			self._cond.release()
-
-class Registers(object):
-	"""The various registers"""
-
-	@staticmethod
-	def _getLocation(cfg, index, dir):
-		# returns r/w location, or None if out of bounds
-		row = index // cfg.cols
-		col = index % cfg.cols
-		if dir == 'up':
-			row -= 1
-			if row < 0:
-				return None
-		elif dir == 'down':
-			row += 1
-			if row >= cfg.rows:
-				print('too many rows: %d >= %d' % (row, cfg.rows))
-				return None
-		elif dir == 'left':
-			col -= 1
-			if col < 0:
-				return None
-		elif dir == 'right':
-			col += 1
-			if col >= cfg.cols:
-				return None
-		elif dir == 'any':
-			return None # todo figure out how to handle 'any'
-		else:
-			raise RuntimeError('%s is not a valid read/write direction' % (dir,))
-		return frozenset((index, row*cfg.cols + col))
 
 class Nodes(object):
 	"""The nodes types"""
