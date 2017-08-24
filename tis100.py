@@ -406,6 +406,15 @@ def init():
 
 	return prog, cfg
 
+def createTickAction():
+	#tick = -1
+	def reportTick():
+		# todo check here if all nodes are either idle or blocked?
+		#tick += 1
+		tick = 0
+		print('Starting tick %d!' % (tick,))
+	return reportTick
+
 def parseOp(op):
 	return getattr(Operators, op.lower())
 
@@ -458,38 +467,42 @@ def parseProg(prog, cfg):
 			pass # line is ignored, it is not assigned to a T21 node
 
 	# Create tick barrier and shutdown event
-	tick = -1
-	def reportTick():
-		# todo check here if all nodes are either idle or blocked?
-		tick += 1
-		print('Starting tick %d!' % (tick,))
 	print('Barrier will wait for %d nodes, plus master' % (cfg.cols*cfg.rows,))
-	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=reportTick, timeout=BARRIER_TIMEOUT),
+	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=createTickAction(), timeout=BARRIER_TIMEOUT),
 	         'shutdown': threading.Event()}
 
 	nodes = []
-	fi = 0
-	# todo insert input and output row as well
-	for i,nodec in enumerate(cfg.input + cfg.nodes + cfg.output):
-		if nodec == 'c': # T21 compute node
-			nodes.append(Nodes.compute(cfg, locks, i, fi, code[fi]))
-			fi += 1
-		elif nodec == 'd': # damaged node
-			nodes.append(Nodes.damaged(cfg, locks, i))
-		elif nodec == 'm': # T30 stack memory node
-			nodes.append(Nodes.smemory(cfg, locks, i))
-		elif nodec == 'x': # Null i/o node
-			if i < cfg.cols:
-				nodes.append(Nodes.iNull(cfg, locks, i))
-			else:
-				nodes.append(Nodes.oNull(cfg, locks, i))
-		elif nodec == '-': # Std i/o node
-			if i < cfg.cols:
-				nodes.append(Nodes.iStdin(cfg, locks, i))
-			else:
-				nodes.append(Nodes.oStdout(cfg, locks, i))
-		else:
-			raise ValueError("'%s' is not a supported node type." % (nodec))
+	fi = 0 # fake index, used only by compute nodes, matches what's in program file
+	assert(cfg.cols*cfg.rows == len(cfg.input+cfg.nodes+cfg.output))
+	for row in range(cfg.rows):
+		for col in range(cfg.cols):
+			i = row*cfg.cols + col
+			nodec = (cfg.input+cfg.nodes+cfg.output)[i]
+
+			if row == 0: # input row
+				if nodec == 'x': # Null i node
+					nodes.append(Nodes.iNull(cfg, locks, i))
+				elif nodec == '-': # Std i node
+					nodes.append(Nodes.iStdin(cfg, locks, i))
+				else:
+					raise ValueError("'%s' is not a supported input node type." % (nodec))
+			elif row == cfg.rows-1: # output row
+				if nodec == 'x': # Null o node
+					nodes.append(Nodes.oNull(cfg, locks, i))
+				elif nodec == '-': # Std o node
+					nodes.append(Nodes.oStdout(cfg, locks, i))
+				else:
+					raise ValueError("'%s' is not a supported output node type." % (nodec))
+			else: # body
+				if nodec == 'c': # T21 compute node
+					nodes.append(Nodes.compute(cfg, locks, i, fi, code[fi]))
+					fi += 1
+				elif nodec == 'd': # damaged node
+					nodes.append(Nodes.damaged(cfg, locks, i))
+				elif nodec == 'm': # T30 stack memory node
+					nodes.append(Nodes.smemory(cfg, locks, i))
+				else:
+					raise ValueError("'%s' is not a supported TIS node type." % (nodec))
 	cfg.lookup = lambda idx: nodes[idx]
 	return nodes, locks
 
@@ -505,6 +518,7 @@ if __name__ == "__main__":
 	prog, cfg = init()
 	nodes, locks = parseProg(prog, cfg)
 	print('Number of nodes: %d' % (len(nodes),))
+	print('List of nodes: %r' % (nodes,))
 	print('List of locks: %r' % (locks,))
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
