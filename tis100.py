@@ -31,6 +31,10 @@ READ_TIMEOUT = 1 # seconds
 ###
 
 class TISError(Exception):
+	"""An error has occurred which violates the TIS specification"""
+	pass
+class ReadWaitException(Exception):
+	"""An attempt to read cannot be fulfilled yet"""
 	pass
 
 class Meta(type):
@@ -95,7 +99,7 @@ class Nodes(object):
 			self._cfg = cfg
 			self._index = index
 			self._locks = locks
-			self._state = 'IDLE'
+			self._state = 'STRT'
 			self._neighbors = {} # todo conver to namedtuple
 		def run(self):
 			self._neighbors = Nodes.findNeighbors(self)
@@ -181,7 +185,7 @@ class Nodes(object):
 					self._outRegister = None
 					return ret
 				else:
-					return None
+					raise ReadWaitException()
 			finally:
 				self._outLock.release()
 		def finalizeTick(self):
@@ -194,9 +198,13 @@ class Nodes(object):
 	# Begin IO nodes
 
 	class iNull(abstractIoNode):
-		pass # actually pass! yay!
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index)
+			self._locks['idle'].acquire()
 	class oNull(abstractIoNode):
-		pass # actually pass! yay!
+		def __init__(self, cfg, locks, index):
+			super().__init__(cfg, locks, index)
+			self._locks['idle'].acquire()
 	class iStdin(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
@@ -205,19 +213,28 @@ class Nodes(object):
 			assert(register == 'down')
 			inchar = sys.stdin.buffer.read(1)
 			if len(inchar) == 0:
-				value = Val(0)
+				if self._state != 'IDLE':
+					self._locks['idle'].acquire()
+					self._state = 'IDLE'
+				raise ReadWaitException()
 			else:
-				value = Val(ord(inchar))
-			return value
+				self._state = 'RUNN'
+				return Val(ord(inchar))
 	class oStdout(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
 		def runInternal(self):
-			value = self._neighbors['up'].readPort('down')
-			if value is None:
+			try:
+				value = self._neighbors['up'].readPort('down')
+				if self._state == 'WAIT':
+					self._locks['idle'].release()
+					self._state = 'RUNN'
+				print('Node %d: output received value to output:    ------->    %s' % (self._index, value))
+			except ReadWaitException:
+				if self._state != 'WAIT':
+					self._locks['idle'].acquire()
+					self._state = 'WAIT'
 				print('Node %d: output node is waiting' % (self._index,))
-			else:
-				print('Node %d: output received value:    --->    %s' % (self._index, value))
 
 	# Begin TIS nodes
 
@@ -237,17 +254,34 @@ class Nodes(object):
 
 		def runInternal(self):
 			if not self._hascode:
+				if self._state != 'IDLE':
+					if self._state != 'WAIT':
+						self._locks['idle'].acquire()
+					self._state = 'IDLE'
 				return
 			else:
 				# todo how to handle blocked reads/writes? try/catch could be good...
-				self._state = 'RUNN' # todo what are the state names?
-				while True:
+				if self._outRegister is not None:
+					self._locks['idle'].acquire()
+					self._state = 'WAIT'
+					return
+				if self._state == 'IDLE' or self._state == 'WAIT':
+					self._locks['idle'].release()
+				while self._state != 'WAIT':
 					self._ip = (self._ip + 1) % len(self._code)
 					instr = self._code[self._ip][1]
 					if instr[0]:
 						break
+				else:
+					instr = self._code[self._ip][1]
+				self._state = 'RUNN' # todo what are the state names?
 				print('Node %d(%d): executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
-				instr[0](self, instr[1])
+				try:
+					instr[0](self, instr[1])
+				except ReadWaitException:
+					# Try again next tick
+					self._locks['idle'].acquire()
+					self._state = 'WAIT'
 				print('Node %d:     ip: %d, acc: %d, bak: %d' % (self._index, self._ip, self._acc, self._bak))
 			self.finalizeTick() # let any waiting nodes know we are done
 		def jumpLabel(self, label):
@@ -406,13 +440,19 @@ def init():
 
 	return prog, cfg
 
-def createTickAction():
-	#tick = -1
+def createTickAction(locks):
 	def reportTick():
-		# todo check here if all nodes are either idle or blocked?
-		#tick += 1
-		tick = 0
-		print('Starting tick %d!' % (tick,))
+		# This runs once per tick, before all other activities.
+		reportTick.tick += 1
+		if reportTick.locks['idle'].acquire(blocking=False):
+			reportTick.locks['idle'].release()
+			print('Starting tick %d!' % (reportTick.tick,))
+		else:
+			# All threads are idle. Initiate shutdown.
+			reportTick.locks['shutdown'].set()
+			print('All threads stopped, shutting down')
+	reportTick.tick = -1
+	reportTick.locks = locks
 	return reportTick
 
 def parseOp(op):
@@ -466,10 +506,12 @@ def parseProg(prog, cfg):
 			# raise exception if in strict mode?
 			pass # line is ignored, it is not assigned to a T21 node
 
-	# Create tick barrier and shutdown event
+	# Create tick barrier, shutdown event, idle counter
 	print('Barrier will wait for %d nodes, plus master' % (cfg.cols*cfg.rows,))
-	locks = {'tick': threading.Barrier(cfg.cols*cfg.rows + 1, action=createTickAction(), timeout=BARRIER_TIMEOUT),
-	         'shutdown': threading.Event()}
+	locks = {}
+	locks['idle'] = threading.BoundedSemaphore(cfg.cols*cfg.rows)
+	locks['shutdown'] = threading.Event()
+	locks['tick'] = threading.Barrier(cfg.cols*cfg.rows + 1, action=createTickAction(locks), timeout=BARRIER_TIMEOUT)
 
 	nodes = []
 	fi = 0 # fake index, used only by compute nodes, matches what's in program file
@@ -523,7 +565,7 @@ if __name__ == "__main__":
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
 	interrupted = False
-	for i in range(500):
+	for i in range(100):
 		try:
 			locks['tick'].wait()
 			if locks['shutdown'].isSet():
