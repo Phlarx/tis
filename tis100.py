@@ -11,7 +11,7 @@ from argparse import ArgumentParser
 """---------
 Notes:
 
-List of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
+todo List of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
 
 Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
 
@@ -19,8 +19,6 @@ Just use regular events for the registers... then have a single syncho'd outgoin
 
 Multi-source input is multiple line of file
 
-When input is exhausted, it blocks (like real tio)
-Need a way to determine when all nodes are in WAIT (input done, nothing's still happening).
 ---------"""
 
 BARRIER_TIMEOUT = 2 # seconds
@@ -100,21 +98,21 @@ class Nodes(object):
 			self._index = index
 			self._locks = locks
 			self._state = 'STRT'
-			self._neighbors = {} # todo conver to namedtuple
+			self._neighbors = {}
 		def run(self):
 			self._neighbors = Nodes.findNeighbors(self)
 			while True:
 				#print('Node %d: Tick barrier has %d+1 of %d parties' % (self._index, self._locks['tick'].n_waiting, self._locks['tick'].parties))
-				self._locks['tick'].wait() # todo how to handle nodes waiting on register lock?
+				self._locks['tick'].wait()
 				if self._locks['shutdown'].isSet():
 					break
 				if 'runInternal' in dir(self):
 					self.runInternal()
-			# todo cleanup?
+			# todo end-of-tick cleanup?
 		def writePort(self, register, value):
-			raise TISError("This node attempted to write, when it can't.") # todo dynamicize
+			raise TISError("Node %d: Attempted to write, when it can't." % (self._index,))
 		def readPort(self, register):
-			return None
+			raise ReadWaitException()
 
 	class abstractIoNode(abstractNode):
 		"""Input/output nodes"""
@@ -140,13 +138,16 @@ class Nodes(object):
 			elif key == 'acc':
 				return self._acc
 			elif key == 'bak':
-				raise TISError('Cannot read from BAK directly') # todo list node idx
-			elif key in self._neighbors and self._neighbors[key] is not None:
-				return self._neighbors[key].readPort(Nodes.opposite[key])
+				raise TISError('Node %d: Cannot read from BAK directly' % (self._index))
+			elif key in self._neighbors:
+				if self._neighbors[key] is not None:
+					return self._neighbors[key].readPort(Nodes.opposite[key])
+				else:
+					raise TISError("Node %d: Tried to read from out-of-bounds register '%s'" % (self._index, key))
 			elif key == 'any':
 				return Val(0) # todo how to do this?
 			else:
-				raise TISError("'%s' is not valid source register for a %s node" % (key, self.__class__.__name__)) # todo suggest out-of-bounds too
+				raise TISError("Node %d: '%s' is not valid source register for a %s node" % (self._index, key, self.__class__.__name__))
 		def __setitem__(self, key, value):
 			print('Node %d: writing to register %s (value %r)' % (self._index, key, value))
 			if key == 'nil':
@@ -154,15 +155,16 @@ class Nodes(object):
 			elif key == 'acc':
 				self._acc = value
 			elif key == 'bak':
-				raise TISError('Cannot write to BAK directly') # todo list node idx
-			elif key in self._neighbors and self._neighbors[key] is not None:
-				self.writePort(key, value)
+				raise TISError('Node %d: Cannot write to BAK directly' % (self._index,))
+			elif key in self._neighbors:
+				if self._neighbors[key] is not None:
+					self.writePort(key, value)
+				else:
+					raise TISError("Node %d: Tried to write to out-of-bounds register '%s'" % (self._index, key))
 			elif key == 'any':
 				pass # todo how to do this?
 			else:
-				raise TISError("'%s' is not valid destination register for a %s node" % (key, self.__class__.__name__)) # todo suggest out-of-bounds too
-		#def __contains__(self, key):
-		#	return (key in ['nil', 'acc', 'bak', 'any']) or (key in self._neighbors)
+				raise TISError("Node %d: '%s' is not valid source register for a %s node" % (self._index, key, self.__class__.__name__))
 		def writePort(self, register, value):
 			self._outLock.acquire()
 			try:
@@ -260,7 +262,6 @@ class Nodes(object):
 					self._state = 'IDLE'
 				return
 			else:
-				# todo how to handle blocked reads/writes? try/catch could be good...
 				if self._outRegister is not None:
 					self._locks['idle'].acquire()
 					self._state = 'WAIT'
@@ -274,7 +275,7 @@ class Nodes(object):
 						break
 				else:
 					instr = self._code[self._ip][1]
-				self._state = 'RUNN' # todo what are the state names?
+				self._state = 'RUNN'
 				print('Node %d(%d): executing %s %s' % (self._index, self._fakeindex, instr[0], ' '.join(instr[1])))
 				try:
 					instr[0](self, instr[1])
@@ -459,7 +460,7 @@ def parseOp(op):
 	return getattr(Operators, op.lower())
 
 def parseArg(arg):
-	return arg.strip(',').lower() # todo are labels case sensitive?
+	return arg.strip(',').lower()
 
 # todo handle line modifiers: @, !..., where do they live, what do they mean, etc?
 def parseLine(line):
@@ -468,7 +469,7 @@ def parseLine(line):
 	comment = comment.strip()
 	# now check if line w/o comment is too long
 	label, _, cmd = tuple(code.rpartition(':'))
-	label = label.lower() # todo are labels case sensitive?
+	label = label.lower()
 	# now validate label
 	cmd = cmd.split()
 	if cmd:
@@ -565,7 +566,7 @@ if __name__ == "__main__":
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
 	interrupted = False
-	for i in range(100):
+	for i in range(500):
 		try:
 			locks['tick'].wait()
 			if locks['shutdown'].isSet():
