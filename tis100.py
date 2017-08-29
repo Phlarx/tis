@@ -3,8 +3,7 @@
 
 VERSION = '0.0.1'
 
-import sys
-import threading
+import sys, threading, time
 
 from argparse import ArgumentParser
 
@@ -111,7 +110,7 @@ class Nodes(object):
 			# todo end-of-tick cleanup?
 		def writePort(self, register, value):
 			raise TISError("Node %d: Attempted to write, when it can't." % (self._index,))
-		def readPort(self, register):
+		def readPort(self, register, blocking=True):
 			raise ReadWaitException()
 
 	class abstractIoNode(abstractNode):
@@ -145,7 +144,15 @@ class Nodes(object):
 				else:
 					raise TISError("Node %d: Tried to read from out-of-bounds register '%s'" % (self._index, key))
 			elif key == 'any':
-				return Val(0) # todo how to do this?
+				timeLimit = time.clock() + READ_TIMEOUT
+				while time.clock() < timeLimit:
+					for dir in ['up','right','down','left']:
+						ret = self._neighbors[dir].readPort(Nodes.opposite[dir], blocking=False)
+						if ret is not None:
+							return ret
+					time.sleep(0.05)
+				else:
+					raise ReadWaitException()
 			else:
 				raise TISError("Node %d: '%s' is not valid source register for a %s node" % (self._index, key, self.__class__.__name__))
 		def __setitem__(self, key, value):
@@ -162,7 +169,7 @@ class Nodes(object):
 				else:
 					raise TISError("Node %d: Tried to write to out-of-bounds register '%s'" % (self._index, key))
 			elif key == 'any':
-				pass # todo how to do this?
+				self.writePort('any', value)
 			else:
 				raise TISError("Node %d: '%s' is not valid source register for a %s node" % (self._index, key, self.__class__.__name__))
 		def writePort(self, register, value):
@@ -172,15 +179,18 @@ class Nodes(object):
 				assert(self._outRegister is None)
 				self._outValue = value
 				self._outRegister = register
-				# todo notify any waiting neighbors?
+				self._outLock.notify_all() # todo notify any waiting neighbors? More than this?
 			finally:
 				self._outLock.release()
-		def readPort(self, register):
+		def readPort(self, register, blocking=True):
 			# called by neighbors
 			self._outLock.acquire()
 			try:
 				if self._outRegister == None:
-					self._outLock.wait(READ_TIMEOUT) # todo non-blocking wait for notify? have special values for notyet, notset, notyours?
+					if blocking:
+						self._outLock.wait(READ_TIMEOUT) # todo have special values for notyet, notset, notyours?
+					else:					 # todo detect when timeout happens, to create warning
+						return None
 				if self._outRegister == 'any' or self._outRegister == register:
 					ret = self._outValue
 					self._outValue = None
@@ -210,7 +220,7 @@ class Nodes(object):
 	class iStdin(abstractIoNode):
 		def __init__(self, cfg, locks, index):
 			super().__init__(cfg, locks, index)
-		def readPort(self, register):
+		def readPort(self, register, blocking=True):
 			# called by neighbors
 			assert(register == 'down')
 			inchar = sys.stdin.buffer.read(1)

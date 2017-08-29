@@ -1,0 +1,8 @@
+#!./tis100.py -c1 -r1 -i- -nc -o-
+@0           # Indicates that this is node 0
+ADD UP       # Gets input and adds it to ACC, the only addressable register in a T-21
+G:           # Defines a label called "G"
+SUB 2        # Subtracts 2 from ACC
+JGZ G        # If ACC is greater than 0, jumps to G
+MOV ACC DOWN # Sends the value of ACC to the first available neighbor; in this case, output.
+             # Implicitly jumps back to the first line
