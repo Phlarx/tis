@@ -398,6 +398,9 @@ class Operators(object):
 ###
 
 def init():
+	# Support for if the opts are all in one chunk (e.g. shebang)
+	args = [chunk for subl in sys.argv for chunk in subl.split()]
+
 	# todo:
 	# layout defaults to 3 rows 4 cols, all T21 compute nodes
 	# can be defined via -n 'ccmcccccdmcc'? (c)ompute, (m)emory, (d)amaged
@@ -425,7 +428,7 @@ def init():
 	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
 	                                       'version number and exit.')
 
-	cfg = parser.parse_args()
+	cfg = parser.parse_args(args[1:])
 	cfg.rows += 2 # for i/o rows
 
 	assert(cfg.cols == len(cfg.input)) # todo make more dynamic
