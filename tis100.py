@@ -3,7 +3,7 @@
 
 VERSION = '0.0.1'
 
-import sys, threading, time
+import itertools, sys, threading, time
 
 from argparse import ArgumentParser
 
@@ -421,7 +421,8 @@ def init():
 	# able to use the lua definitions instead? Maybe via Lunatic (https://labix.org/lunatic-python)? (Far in future)
 	#
 	# what happens when multiple stdins/stdouts?
-	# allow top outputs in non-strict mode?
+	# strict mode -> must exacly conform with tis formats
+	# allow top outputs in non-strict mode? no
 	# what is the graphical output called?
 	# attempt to infer rows/cols from len(input/output),len(nodes)? what happens if not clean?
 
@@ -429,19 +430,25 @@ def init():
 	# positional args
 	parser.add_argument('tisfile', action='store', type=str, nargs='?', metavar='tisfile', help='A TIS-100 program file.')
 	# optional args
-	parser.add_argument('-c', '--cols', action='store', type=int, default=4, help='column count')
+	#parser.add_argument('-c', '--cols', action='store', type=int, default=4, help='column count')
 	parser.add_argument('-h', '--help', action='help', help='Show this help message and exit.')
 	parser.add_argument('-i', '--input', action='store', type=str, default='-xxx', help='input layout')
 	parser.add_argument('-n', '--nodes', action='store', type=str, default='cccc'*3, help='node layout')
 	parser.add_argument('-o', '--output', action='store', type=str, default='xxx-', help='output layout')
-	parser.add_argument('-r', '--rows', action='store', type=int, default=3, help='row count')
+	parser.add_argument('-k', '--cutoff', action='store', type=int, default=0, help='stop program if it runs longer than this many ticks')
+	#parser.add_argument('-r', '--rows', action='store', type=int, default=3, help='row count')
 	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
 	                                       'version number and exit.')
 
 	cfg = parser.parse_args(args[1:])
+
+	# todo make more dynamic
+	cfg.cols = len(cfg.input)
+	cfg.rows = len(cfg.nodes)//cfg.cols
+
 	cfg.rows += 2 # for i/o rows
 
-	assert(cfg.cols == len(cfg.input)) # todo make more dynamic
+	assert(cfg.cols == len(cfg.input))
 	assert(cfg.cols == len(cfg.output))
 	assert(cfg.cols*cfg.rows == len(cfg.input+cfg.nodes+cfg.output))
 
@@ -495,7 +502,7 @@ def parseLine(line):
 	else:
 		op = None
 		args = []
-	return (label, (op, args), comment)
+	return (label, (op, args), comment) # todo make this be a named tuple
 
 def parseProg(prog, cfg):
 	index = None
@@ -579,7 +586,7 @@ if __name__ == "__main__":
 	threads = start(nodes)
 	print('Active threads: %d' % (threading.active_count(),))
 	interrupted = False
-	for i in range(500):
+	for i in itertools.count():
 		try:
 			locks['tick'].wait()
 			if locks['shutdown'].isSet():
@@ -590,6 +597,9 @@ if __name__ == "__main__":
 			else:
 				interrupted = True
 				locks['shutdown'].set()
-				print('Shutting down...')
+				print('Shutting down at interrupt...')
+		if i >= cfg.cutoff > 0:
+			locks['shutdown'].set()
+			print('Shutting down at tick cutoff...')
 	for thr in threads:
 		thr.join(5)
