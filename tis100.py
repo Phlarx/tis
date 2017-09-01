@@ -156,7 +156,7 @@ class Nodes(object):
 						ret = self._neighbors[dir].readPort(Nodes.opposite[dir], blocking=False)
 						if ret is not None:
 							return ret
-					time.sleep(0.05)
+					time.sleep(0.01)
 				else:
 					raise ReadWaitException()
 			else:
@@ -443,8 +443,8 @@ def init():
 	parser.add_argument('-o', '--output', action='store', type=str, default='xxx-', help='output layout')
 	parser.add_argument('-k', '--cutoff', action='store', type=int, default=0, help='stop program if it runs longer than this many ticks')
 	#parser.add_argument('-r', '--rows', action='store', type=int, default=3, help='row count')
-	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's "+
-	                                       'version number and exit.')
+	parser.add_argument('-V', '--version', action='version', version=('TIS-100 interpreter v'+VERSION), help="Show interpreter's version number and exit.")
+	parser.add_argument('-t', '--tickrate', action='store', type=int, default=0, help='target this many ticks per second')
 
 	cfg = parser.parse_args(args[1:])
 
@@ -457,6 +457,11 @@ def init():
 	assert(cfg.cols == len(cfg.input))
 	assert(cfg.cols == len(cfg.output))
 	assert(cfg.cols*cfg.rows == len(cfg.input+cfg.nodes+cfg.output))
+
+	if cfg.tickrate == 0:
+		cfg.tickdelay = 0
+	else:
+		cfg.tickdelay = 1.0 / cfg.tickrate
 
 	if cfg.tisfile:
 		with open(cfg.tisfile, 'r') as f:
@@ -473,11 +478,11 @@ def createTickAction(locks):
 		reportTick.tick += 1
 		if reportTick.locks['idle'].acquire(blocking=False):
 			reportTick.locks['idle'].release()
-			print('Starting tick %d!' % (reportTick.tick,))
+			print('Starting tick %d!' % (reportTick.tick,), flush=True)
 		else:
 			# All threads are idle. Initiate shutdown.
 			reportTick.locks['shutdown'].set()
-			print('All threads stopped, shutting down')
+			print('All threads stopped, shutting down', flush=True)
 	reportTick.tick = -1
 	reportTick.locks = locks
 	return reportTick
@@ -595,6 +600,7 @@ if __name__ == "__main__":
 	for i in itertools.count():
 		try:
 			locks['tick'].wait()
+			time.sleep(cfg.tickdelay)
 			if locks['shutdown'].isSet():
 				break
 		except KeyboardInterrupt:
@@ -603,9 +609,9 @@ if __name__ == "__main__":
 			else:
 				interrupted = True
 				locks['shutdown'].set()
-				print('Shutting down at interrupt...')
+				print('Shutting down at interrupt...', flush=True)
 		if i >= cfg.cutoff > 0:
 			locks['shutdown'].set()
-			print('Shutting down at tick cutoff...')
+			print('Shutting down at tick cutoff...', flush=True)
 	for thr in threads:
 		thr.join(5)
