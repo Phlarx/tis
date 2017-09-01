@@ -12,7 +12,9 @@ Notes:
 
 todo List of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
 
-Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?)
+Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?) Does real TIS do this, or does it just stall forever?
+
+I feel like a lot of the synchronicity is wrong (when compared to real). Need to check that.
 
 Just use regular events for the registers... then have a single syncho'd outgoing register to hold the value in each node (this may make 'any' more natural to handle)
 
@@ -98,6 +100,10 @@ class Nodes(object):
 			self._locks = locks
 			self._state = 'STRT'
 			self._neighbors = {}
+		def __str__(self):
+			return "{idx: <3}{name: <10}{state}".format(name=self.__class__.__name__, idx=self._index, state=self._state)
+		def __repr__(self):
+			return "{name}@{idx}".format(name=self.__class__.__name__, idx=self._index)
 		def run(self):
 			self._neighbors = Nodes.findNeighbors(self)
 			while True:
