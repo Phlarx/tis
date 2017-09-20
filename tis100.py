@@ -10,13 +10,24 @@ from argparse import ArgumentParser
 """---------
 Notes:
 
-todo List of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
+todo what is the list of states (from memory)?: IDLE, RUN, SLP, READ, WRTE
+todo implement LAST pseudoport (port of last ANY operation, if before any ANY, undefined)
+todo implement stack memory node operations
+todo implement visualization module output
+	30w x 18h (0,0 is top left; 29,17 is bottom right) default
+	36w x 22h in sandbox
+	0: black
+	1: dark grey
+	2: light grey
+	3: white
+	4: red
+	neg: terminator
 
-Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?) Does real TIS do this, or does it just stall forever?
+From manual: writing/reading from disconnected port mena block indefinitely
+
+Will need to find a way to prevent deadlocks (timeout is okay I guess...) (maybe loop detect in barrier helper?) Does real TIS do this, or does it just stall forever (until timeout)?
 
 I feel like a lot of the synchronicity is wrong (when compared to real). Need to check that.
-
-Just use regular events for the registers... then have a single syncho'd outgoing register to hold the value in each node (this may make 'any' more natural to handle)
 
 Multi-source input is multiple line of file
 
@@ -384,12 +395,30 @@ class Operators(object):
 		def run(cls, node, args):
 			if node['acc'] != 0:
 				node.jumpLabel(args[0])
+	class jro(abstractOp):
+		nargs = 1
+
+		@classmethod
+		def run(cls, node, args):
+			node.jumpOffset(args[0])
 	class mov(abstractOp):
 		nargs = 2
 
 		@classmethod
 		def run(cls, node, args):
 			node[args[1]] = node[args[0]]
+	class neg(abstractOp):
+		nargs = 0
+
+		@classmethod
+		def run(cls, node, args):
+			node['acc'] = -node['acc']
+	class nop(abstractOp):
+		nargs = 0
+
+		@classmethod
+		def run(cls, node, args):
+			pass # technically, the real TIS-100 executes ADD NIL here
 	class sav(abstractOp):
 		nargs = 0
 
@@ -494,6 +523,8 @@ def parseArg(arg):
 	return arg.strip(',').lower()
 
 # todo handle line modifiers: @, !..., where do they live, what do they mean, etc?
+# 	seem to belong unconditionally first on line
+# 	! is breakpoint
 def parseLine(line):
 	# now check if line is too long
 	code, _, comment = line.partition('#')
@@ -528,7 +559,7 @@ def parseProg(prog, cfg):
 			# now validate line is only 's/@[0-9]+/'
 			# if not:
 			# now check if line is too long
-			line = line.split('#',1)[0]
+			line = line.split('#',1)[0] # double comment e.g. "## hello" is the program title. Do we care?
 			# endif
 			index = int(line[1:])
 			# now validate index is in range
