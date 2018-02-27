@@ -1,4 +1,3 @@
-#!./tis100.py -i- -nc -o-
 @0           # Indicates that this is node 0
 ADD UP       # Gets input and adds it to ACC, the only addressable register in a T-21
 G:           # Defines a label called "G"

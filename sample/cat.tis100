@@ -1,9 +1,12 @@
-#!./tis100.py -ix-xx -oxx-x
-@1
+@0
 MOV UP ANY
-@5
+@4
+MOV UP ANY
+@8
 MOV UP ANY
 @9
-MOV UP ANY
+MOV ANY RIGHT
 @10
-MOV ANY ANY
+MOV ANY RIGHT
+@11
+MOV ANY DOWN
