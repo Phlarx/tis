@@ -89,11 +89,11 @@ jump_label:
                 break;
             case TIS_OP_TYPE_JRO:
                 if(op->src.type == TIS_OP_ARG_TYPE_CONSTANT) {
-                    node->index = (node->index + op->src.con) % 15;
+                    node->index = (node->index + op->src.con) % TIS_NODE_LINE_COUNT;
                 } else if(op->src.type == TIS_OP_ARG_TYPE_REGISTER) {
                     result = read_register(tis, node, op->src.reg, &value);
                     if(result == TIS_OP_RESULT_OK) {
-                        node->index = (node->index + value) % 15;
+                        node->index = (node->index + value) % TIS_NODE_LINE_COUNT;
                     }
                 } else {
                     error("INTERNAL: Invalid arg type for JRO (%d) on node @%d\n", op->src.type, node->id);
@@ -161,13 +161,13 @@ jump_label:
         if(jump != NULL) {
             debug("Jumping to label %.20s on node @%d\n", jump, node->id);
             int i = 0;
-            for(; i < 15; i++) {
+            for(; i < TIS_NODE_LINE_COUNT; i++) {
                 if(strcmp(jump, node->code[i]->label) == 0) {
                     node->index = i-1; // jump to instuction *before* label
                     break;
                 }
             }
-            if(i == 15) {
+            if(i == TIS_NODE_LINE_COUNT) {
                 // unable to jump to missing label TODO message
                 result = TIS_OP_RESULT_ERR;
             }

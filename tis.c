@@ -26,7 +26,7 @@ int init_layout(tis_t* tis, char* layoutfile) {
         if(layout != NULL) {
             fclose(layout);
         }
-        error("Cannot initialize with zero columns\n"); // But zero rows are fine, right? TODO
+        error("Cannot initialize with zero columns\n"); // But zero rows are fine, right? TODO this would mean I have to run the outputs separate from the bottom row
         return INIT_FAIL;
     }
 
@@ -66,10 +66,9 @@ int init_nodes(tis_t* tis, char* sourcefile) {
     FILE* source = fopen(sourcefile, "r");
 
     int BUFSIZE = 100;
-    //int NODELINELEN = 19;  // TODO is this the correct max line length?
     char buf[BUFSIZE];
-    int id = -1;
-    int line = 0;
+    int id = -1, preid = -1;
+    int line = TIS_NODE_LINE_COUNT; // start with an out-of-bounds value
     tis_node_t* node = NULL;
     while(fgets(buf, BUFSIZE, source) != NULL) {
         char* nl = strchr(buf, '\n');
@@ -83,21 +82,39 @@ int init_nodes(tis_t* tis, char* sourcefile) {
         debug("parse line:  %.*s\n", BUFSIZE, buf);
 
         if(buf[0] == '\0') {
-            // empty line; ignore (TODO enforce empty line before new node?)
-        } else if(sscanf(buf, "@%d", &id) == 1) { // TODO check for extra data on this line
-            // start new node (TODO this allows out-of-order. warn?)
+            // empty line; ignore
+            // (enforce empty line before new node?)
+            // TODO experiment: what does the game do in this case?
+        } else if(sscanf(buf, "@%d", &id) == 1) { // TODO check for extra data on this line (experiment: what does the game do with this?)
+            if(id < preid) {
+                // TODO experiment: what does the game do in this case?
+                warn("Nodes appear out of order, @%d is after @%d. Continuing anyway.\n", id, preid);
+                preid = id;
+            }
             node = NULL;
+            line = -1; // will be zero next line
             for(size_t i = 0; i < tis->size; i++) {
                 if(tis->nodes[i]->id == id) {
                     node = tis->nodes[i];
-                    line = -1; // will be zero next line
                     break;
                 }
             }
             if(node == NULL) {
+                // TODO experiment: what does the game do in this case?
                 warn("@%d is out-of-bounds for the current layout. Contents will be ignored.\n", id);
+            } else if(node->code[0] != NULL) {
+                // TODO experiment: what does the game do in this case?
+                warn("@%d has already been seen. Contents will be ignored.\n", id);
+                node = NULL;
             }
-        } else if(node != NULL && line < 15) { // TODO warn on overlength lines (len > NODELINELEN)
+        } else if(node == NULL && line < TIS_NODE_LINE_COUNT) {
+            // Nothing to do, just skipping past these lines
+        } else if(node != NULL && line < TIS_NODE_LINE_COUNT) {
+            if(strlen(buf) > TIS_NODE_LINE_LENGTH) {
+                // TODO experiment: what does the game do in this case?
+                warn("Overlength line, continuing anyway:\n");
+                warn("    %.*s\n", BUFSIZE, buf);
+            }
             node->code[line] = calloc(1, sizeof(tis_op_t));
             node->code[line]->linenum = line+1; // these are 1-indexed
             node->code[line]->linetext = strdup(buf);
@@ -109,23 +126,24 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             int val = 0;
             int nargs = 0;
             if(tis->name == NULL) {
-                if((temp = strstr(buf, "##")) != NULL) {
+                if((temp = strstr(buf, "##")) != NULL) { // Save title, if present
                     temp += 2; // skip past ##
-                    tis->name = strdup(temp); // TODO strip whitespace
+                    temp = strtok(temp, " "); // strip whitespace
+                    tis->name = strdup(temp);
                 }
             }
-            if((temp = strchr(buf, '#')) != NULL) {
+            if((temp = strchr(buf, '#')) != NULL) { // Remove comment, if present
                 *temp = '\0';
             }
-            if((temp = strchr(buf, ':')) != NULL) {
+            if((temp = strchr(buf, ':')) != NULL) { // Save and remove label, if present
                 *temp = '\0';
                 temp++; // temp now points just after label
-                node->code[line]->label = strdup(buf); // TODO strip whitespace (but this would be invalid for real TIS), verify label is A-Z0-9~`$%^&*()_-+={}[]|\;"'<>,.?/,
-            } else {                                   // labels may be 18 chars (whole line) but longest useful is 14 (for jmp <label>)??? off by one???
+                node->code[line]->label = strdup(buf); // TODO strip whitespace? (but this would be invalid for real TIS), verify label is A-Z0-9~`$%^&*()_-+={}[]|\;"'<>,.?/,
+            } else {                                   // labels may be 18 chars (whole line + ':') but longest useful is 14 (for jmp <label>)??? off by one???
                 temp = buf;
             }
 
-            temp = strtok(temp, " ");
+            temp = strtok(temp, " ,");
             if(temp == NULL) {
                 node->code[line]->type = TIS_OP_TYPE_INVALID; // line contains no code
                 nargs = 0;
@@ -177,16 +195,16 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 node->code[line]->type = TIS_OP_TYPE_SWP;
                 nargs = 0;
             } else {
-                node->code[line]->type = TIS_OP_TYPE_INVALID; // TODO give warning; operator unrecognized
+                error("Unrecognized instruction \"%s\" on line %d of @%d\n", temp, line+1, id);
+                node->code[line]->type = TIS_OP_TYPE_INVALID;
                 nargs = 0;
             }
             if(nargs > 0) {
                 temp = strtok(NULL, " ,");
-                // TODO validate args for op type
                 if(temp == NULL) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE;
                 } else if(val == 1) { // labels are only valid as sources (...syntactically. semantically, they are a dst; syntactically, they are actually a src)
-                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // TODO are these register keywords valid as labels? are numerics valid as labels?
+                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // TODO experiment: are register keywords valid as labels? are numerics valid as labels?
                     node->code[line]->src.label = strdup(temp); // whitespace is already stripped by strtok
                 } else if((val = strtol(temp, &temp2, 0), temp != temp2 && *temp2 == '\0')) { // constants are only valid as sources
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_CONSTANT;
@@ -216,7 +234,8 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->src.reg = TIS_REGISTER_LAST;
                 } else {
-                    node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // TODO give warning; unparseable argument. Give separate err for BAK?
+                    error("Invalid first argument \"%s\" on line %d of @%d", temp, line+1, id);
+                    node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // TODO Give separate err for BAK?
                 }
             }
             if(nargs > 1) {
@@ -248,16 +267,21 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->dst.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->dst.reg = TIS_REGISTER_LAST;
                 } else {
-                    node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // TODO give warning; unparseable argument. Give separate err for BAK?
+                    error("Invalid second argument \"%s\" on line %d of @%d", temp, line+1, id);
+                    node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // TODO Give separate err for BAK?
                 }
             }
 
-            // TODO ensure nothing else (except whitespace) is on this line
+            // ensure nothing else (except whitespace) is on this line
+            while((temp = strtok(NULL, " ,")) != NULL) {
+                // TODO experiment: what does the game do in this case?
+                error("Extra token \"%s\" on line %d of @%d\n", temp, line+1, id);
+            }
         } else {
             if(id < 0) {
                 warn("Ignoring out-of-node data at top of file:\n");
             } else {
-                warn("Ignoring out-of-node data after node @%d:\n", id);
+                warn("Ignoring out-of-node data after @%d:\n", id);
             }
             warn("    %.*s\n", BUFSIZE, buf);
         }
@@ -307,23 +331,25 @@ int tick(tis_t* tis) {
     return quiescent;
 }
 
-void print_usage(char* progname) {
-    fprintf(stderr,
-        "%s <source>\n"
-        "%s <source> <layout>\n"
-        "%s <source> <rows> <cols>\n",
-        progname, progname, progname);
-}
-
 /*
  * Usage is:
  * ./tis <source>
  * ./tis <source> <layout>
  * ./tis <source> <rows> <cols>
  */
+void print_usage(char* progname) {
+    fprintf(stderr,
+        "%s <source>\n"
+        "%s <source> <layout>\n"
+        "%s <source> <rows> <cols>\n",
+        progname, progname, progname);
+    // TODO flesh this out a bit
+}
+
 int main(int argc, char** argv) {
     tis_t tis = {0};
     char* layoutfile = NULL;
+    int timelimit = 0;
 
     switch(argc) {
         case 2:
@@ -343,19 +369,18 @@ int main(int argc, char** argv) {
     }
 
     if(init_layout(&tis, layoutfile) != INIT_OK) {
-        // an error has happened, message printed from init_layout
+        // an error has happened, message was printed from init_layout
         destroy(tis);
         return -1;
     }
 
     if(init_nodes(&tis, argv[1]) != INIT_OK) {
-        // an error has happened, message printed from init_nodes
+        // an error has happened, message was printed from init_nodes
         destroy(tis);
         return -1;
     }
 
-    int timelimit = 20;
-    for(int time = 0; !tick(&tis) && time<timelimit; time++) {
+    for(int time = 0; !tick(&tis) && (timelimit == 0 || time < timelimit); time++) {
         // nothing
     }
 

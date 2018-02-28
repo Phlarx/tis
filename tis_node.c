@@ -3,14 +3,18 @@
 #include <string.h>
 
 #include "tis_io.h"
+#include "tis_node.h"
 #include "tis_ops.h"
 #include "tis_types.h"
+
+//// Below value copied from header "tis_node.h"
+//#define TIS_NODE_LINE_COUNT 15
 
 tis_node_state_t run(tis_t* tis, tis_node_t* node) {
     if(node->type == TIS_NODE_TYPE_COMPUTE) {
         int start_index = node->index;
         while(node->code[node->index] == NULL || node->code[node->index]->type == TIS_OP_TYPE_INVALID) {
-            node->index = (node->index + 1) % 15;
+            node->index = (node->index + 1) % TIS_NODE_LINE_COUNT;
             if(node->index == start_index) {
                 return TIS_NODE_STATE_IDLE;
             }
@@ -18,7 +22,7 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
 
         tis_op_result_t result = step(tis, node, node->code[node->index]);
         if(result == TIS_OP_RESULT_OK) {
-            node->index = (node->index + 1) % 15;
+            node->index = (node->index + 1) % TIS_NODE_LINE_COUNT;
             return TIS_NODE_STATE_RUNNING;
         } else if(result == TIS_OP_RESULT_READ_WAIT) {
             return TIS_NODE_STATE_READ_WAIT;
@@ -42,7 +46,7 @@ tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
     } else {
         tis_op_result_t result = step_defer(tis, node, node->code[node->index]);
         if(result == TIS_OP_RESULT_OK) {
-            node->index = (node->index + 1) % 15;
+            node->index = (node->index + 1) % TIS_NODE_LINE_COUNT;
             return TIS_NODE_STATE_RUNNING;
         } else if(result == TIS_OP_RESULT_READ_WAIT) {
             // internal error
