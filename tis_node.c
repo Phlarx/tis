@@ -7,9 +7,6 @@
 #include "tis_ops.h"
 #include "tis_types.h"
 
-//// Below value copied from header "tis_node.h"
-//#define TIS_NODE_LINE_COUNT 15
-
 tis_node_state_t run(tis_t* tis, tis_node_t* node) {
     if(node->type == TIS_NODE_TYPE_COMPUTE) {
         int start_index = node->index;

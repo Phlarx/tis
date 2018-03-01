@@ -113,7 +113,7 @@ typedef struct tis_node {
 typedef struct tis_io_node {
     tis_io_type_t type;
     char* name; // optional
-    void* data;
+    FILE* file; // TODO union this for other type that don't use a FILE?
 } tis_io_node_t;
 
 typedef struct tis {
@@ -174,7 +174,7 @@ typedef struct tis {
 #define safe_free_io_node(ptr) do {      \
     if(ptr != NULL) {                    \
         safe_free(ptr->name);            \
-        /* TODO safe_free(ptr->data); */ \
+        /* TODO fclose(ptr->file); */    \
         free(ptr);                       \
         ptr = NULL;                      \
     }                                    \
@@ -183,5 +183,7 @@ typedef struct tis {
 #define debug(...) fprintf(stderr, "DEBUG:\t"__VA_ARGS__)
 #define warn(...) fprintf(stderr, "WARN:\t"__VA_ARGS__)
 #define error(...) fprintf(stderr, "ERROR:\t"__VA_ARGS__)
+
+#define custom_abort() exit(EXIT_FAILURE)
 
 #endif /* _TIS_TYPES_ */

@@ -10,7 +10,7 @@ tis_op_result_t input(tis_io_node_t* io, int* value) {
     int in = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            in = fgetc(stdin);
+            in = fgetc(io->file);
             if(in == EOF) {
                 return TIS_OP_RESULT_READ_WAIT;
             }
@@ -36,7 +36,7 @@ tis_op_result_t output(tis_io_node_t* io, int value) {
     int out = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            out = fputc(value, stdout);
+            out = fputc(value, io->file);
             if(out == EOF) {
                 //return TIS_OP_RESULT_READ_WAIT;
             }
