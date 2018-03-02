@@ -152,6 +152,7 @@ tis_op_result_t write_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regi
     return TIS_OP_RESULT_WRITE_WAIT;
 }
 tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, tis_register_t reg) {
+    (void)tis;
     if(node->writereg == TIS_REGISTER_NIL) { // if NIL, the previous write was handled, reset it all
         node->writereg = TIS_REGISTER_INVALID;
         return TIS_OP_RESULT_OK;

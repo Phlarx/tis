@@ -16,6 +16,31 @@
 tis_t tis = {0};
 tis_opt_t opts = {0};
 
+/*
+ * This is a linked list of file handles to close when destroying things.
+ * This is to be used only for file handles that are non-trivial to close the normal way.
+ * This can cause double-frees if not used with care.
+ */
+typedef struct file_list {
+    FILE* file;
+    struct file_list* next;
+} file_list_t;
+static file_list_t* files_to_close = NULL;
+void register_file_handle(FILE* file) {
+    file_list_t* temp = calloc(1, sizeof(file_list_t));
+    temp->file = file;
+    temp->next = files_to_close;
+    files_to_close = temp;
+}
+void close_file_handles() {
+    while(files_to_close != NULL) {
+        fclose(files_to_close->file);
+        file_list_t* temp = files_to_close->next;
+        free(files_to_close);
+        files_to_close = temp;
+    }
+}
+
 int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
     FILE* layout = NULL;
     if(layoutfile != NULL) {
@@ -28,7 +53,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
         } else { // alternate mode: layoutfile is a string representing the file contents
             layout = fmemopen(layoutfile, strlen(layoutfile), "r");
             if(layout == NULL) {
-                error("Unable to prepare layout string for reading\n", layoutfile);
+                error("Unable to prepare layout string for reading\n");
                 return INIT_FAIL;
             }
         }
@@ -153,6 +178,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 if((tis->inputs[index]->file = fopen(buf, "r")) == NULL) { // TODO register file for later close?
                                     error("Unable to open %.*s for reading\n", BUFSIZE, buf); // TODO what to do about this? error out?
                                 }
+                                register_file_handle(tis->inputs[index]->file);
                             }
                         } else {
                             // TODO node type not implemented? internal error?
@@ -183,6 +209,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 if((tis->outputs[index]->file = fopen(buf, "a")) == NULL) { // TODO register file for later close?
                                     error("Unable to open %.*s for writing\n", BUFSIZE, buf); // TODO what to do about this? error out?
                                 }
+                                register_file_handle(tis->outputs[index]->file);
                             }
                         } else {
                             // TODO node type not implemented? internal error?
@@ -519,6 +546,7 @@ void print_usage(char* progname) {
 
 int main(int argc, char** argv) {
     atexit(pre_exit);
+    atexit(close_file_handles);
 
     int MAXARGS = 3;
     char* argvector[MAXARGS];
