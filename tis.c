@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L // for strdup()
+#define _POSIX_C_SOURCE 200809L // for strdup() and fmemopen()
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,13 +16,21 @@
 tis_t tis = {0};
 tis_opt_t opts = {0};
 
-int init_layout(tis_t* tis, char* layoutfile) {
+int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
     FILE* layout = NULL;
     if(layoutfile != NULL) {
-        layout = fopen(layoutfile, "r");
-        if(layout == NULL) {
-            error("Unable to open layout file '%s' for reading\n", layoutfile);
-            return INIT_FAIL;
+        if(layoutmode == 0) { // default mode: layoutfile is a filename
+            layout = fopen(layoutfile, "r");
+            if(layout == NULL) {
+                error("Unable to open layout file '%s' for reading\n", layoutfile);
+                return INIT_FAIL;
+            }
+        } else { // alternate mode: layoutfile is a string representing the file contents
+            layout = fmemopen(layoutfile, strlen(layoutfile), "r");
+            if(layout == NULL) {
+                error("Unable to prepare layout string for reading\n", layoutfile);
+                return INIT_FAIL;
+            }
         }
     }
     if(layout != NULL) {
@@ -36,7 +44,7 @@ int init_layout(tis_t* tis, char* layoutfile) {
             fclose(layout);
             return INIT_FAIL;
         }
-        debug("Read dimensions %zur %zuc from file '%s'\n", tis->rows, tis->cols, layoutfile);
+        debug("Read dimensions %zur %zuc from layout '%s'\n", tis->rows, tis->cols, layoutfile);
     }
 
     tis->size = tis->rows*tis->cols;
@@ -128,10 +136,14 @@ int init_layout(tis_t* tis, char* layoutfile) {
                             if(strcasecmp(buf, "ASCII") == 0) {
                                 debug("Set I%zu to ASCII mode\n", index);
                                 tis->inputs[index]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
+                            } else if(strcasecmp(buf, "NUMERIC") == 0) {
+                                debug("Set I%zu to NUMERIC mode\n", index);
+                                tis->inputs[index]->type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
                             } else {
                                 goto skip_io_token;
                             }
-                        } else if(tis->inputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII) {
+                        } else if(tis->inputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII ||
+                                  tis->inputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC) {
                             if(strcasecmp(buf, "STDIN") == 0 ||
                                strcasecmp(buf, "-") == 0) {
                                 debug("Set I%zu to use stdin\n", index);
@@ -151,10 +163,14 @@ int init_layout(tis_t* tis, char* layoutfile) {
                             if(strcasecmp(buf, "ASCII") == 0) {
                                 debug("Set O%zu to ASCII mode\n", index);
                                 tis->outputs[index]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
+                            } else if(strcasecmp(buf, "NUMERIC") == 0) {
+                                debug("Set O%zu to NUMERIC mode\n", index);
+                                tis->outputs[index]->type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
                             } else {
                                 goto skip_io_token;
                             }
-                        } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII) {
+                        } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII ||
+                                  tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC) {
                             if(strcasecmp(buf, "STDOUT") == 0 ||
                                strcasecmp(buf, "-") == 0) {
                                 debug("Set O%zu to use stdout\n", index);
@@ -510,6 +526,7 @@ int main(int argc, char** argv) {
     char* sourcefile = NULL;
     char* layoutfile = NULL;
     int timelimit = 0;
+    int layoutmode = 0;
 
     for(int i = 1; i < argc; i++) {
         if(argv[i][0] == '-') {
@@ -519,6 +536,9 @@ int main(int argc, char** argv) {
                     case 'h': // help
                         print_usage(argv[0]);
                         exit(EXIT_SUCCESS);
+                    case 'l': // layoutmode toggle
+                        layoutmode = 1;
+                        break;
                     case 'q': // quiet
                         opts.verbose--;
                         break;
@@ -562,7 +582,7 @@ int main(int argc, char** argv) {
             exit(EXIT_SUCCESS);
     }
 
-    if(init_layout(&tis, layoutfile) != INIT_OK) {
+    if(init_layout(&tis, layoutfile, layoutmode) != INIT_OK) {
         // an error has happened, message was printed from init_layout
         exit(EXIT_FAILURE);
     }

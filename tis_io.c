@@ -10,13 +10,17 @@ tis_op_result_t input(tis_io_node_t* io, int* value) {
     int in = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            in = fgetc(io->file);
-            if(in == EOF) {
+            if((in = fgetc(io->file)) == EOF) {
                 return TIS_OP_RESULT_READ_WAIT;
             }
-            *value = in;
+            *value = clamp(in);
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
+            if(fscanf(io->file, " %d ", &in) != 1) {
+                return TIS_OP_RESULT_READ_WAIT;
+            }
+            *value = clamp(in);
+            break;
         case TIS_IO_TYPE_IGENERATOR_ALGEBRAIC:
         case TIS_IO_TYPE_IGENERATOR_CONSTANT:
         case TIS_IO_TYPE_IGENERATOR_CYCLIC:
@@ -29,6 +33,7 @@ tis_op_result_t input(tis_io_node_t* io, int* value) {
     return TIS_OP_RESULT_OK;
 }
 
+#define TIS_NUMERIC_SEP " " // separator to use when printing in NUMERIC mode
 tis_op_result_t output(tis_io_node_t* io, int value) {
     if(io == NULL) {
         return TIS_OP_RESULT_WRITE_WAIT;
@@ -36,12 +41,15 @@ tis_op_result_t output(tis_io_node_t* io, int value) {
     int out = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            out = fputc(value, io->file);
-            if(out == EOF) {
-                //return TIS_OP_RESULT_READ_WAIT;
+            if((out = fputc(value, io->file)) == EOF) {
+                //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
             }
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
+            if(fprintf(io->file, "%d"TIS_NUMERIC_SEP, value) > 0) {
+                //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+            }
+            break;
         case TIS_IO_TYPE_OSTREAM_IMAGE:
         default:
             error("Not yet implemented\n");

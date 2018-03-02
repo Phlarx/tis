@@ -5,11 +5,6 @@
 #include "tis_types.h"
 #include "tis_node.h"
 
-static inline int clamp(int x) {
-    int _x = (x);
-    return _x > 999 ? 999 : _x < -999 ? -999 : _x;
-}
-
 tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
     if(node->type == TIS_NODE_TYPE_COMPUTE) {
         tis_op_result_t result = TIS_OP_RESULT_OK;

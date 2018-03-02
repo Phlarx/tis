@@ -204,4 +204,13 @@ extern tis_opt_t opts;
 
 #define custom_abort() exit(EXIT_FAILURE)
 
+/*
+ * Begin inlines
+ */
+
+static inline int clamp(int x) {
+    int _x = (x);
+    return _x > 999 ? 999 : _x < -999 ? -999 : _x;
+}
+
 #endif /* _TIS_TYPES_ */
