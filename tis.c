@@ -14,11 +14,16 @@
 #define BUFSIZE 100
 
 tis_t tis = {0};
+tis_opt_t opts = {0};
 
 int init_layout(tis_t* tis, char* layoutfile) {
     FILE* layout = NULL;
     if(layoutfile != NULL) {
         layout = fopen(layoutfile, "r");
+        if(layout == NULL) {
+            error("Unable to open layout file '%s' for reading\n", layoutfile);
+            return INIT_FAIL;
+        }
     }
     if(layout != NULL) {
         // set size from file
@@ -31,7 +36,7 @@ int init_layout(tis_t* tis, char* layoutfile) {
             fclose(layout);
             return INIT_FAIL;
         }
-        debug("Read dimensions %zur %zuc\n", tis->rows, tis->cols);
+        debug("Read dimensions %zur %zuc from file '%s'\n", tis->rows, tis->cols, layoutfile);
     }
 
     tis->size = tis->rows*tis->cols;
@@ -488,10 +493,10 @@ int tick(tis_t* tis) {
  * ./tis <source> <rows> <cols>
  */
 void print_usage(char* progname) {
-    fprintf(stderr,
-        "%s <source>\n"
-        "%s <source> <layout>\n"
-        "%s <source> <rows> <cols>\n",
+    fprintf(stderr, "Usage:\n"
+        "    %s [opts] <source>\n"
+        "    %s [opts] <source> <layout>\n"
+        "    %s [opts] <source> <rows> <cols>\n",
         progname, progname, progname);
     // TODO flesh this out a bit
 }
@@ -499,38 +504,72 @@ void print_usage(char* progname) {
 int main(int argc, char** argv) {
     atexit(pre_exit);
 
+    int MAXARGS = 3;
+    char* argvector[MAXARGS];
+    int argcount = 0;
+    char* sourcefile = NULL;
     char* layoutfile = NULL;
     int timelimit = 0;
 
-    switch(argc) {
-        case 2:
+    for(int i = 1; i < argc; i++) {
+        if(argv[i][0] == '-') {
+            for(int j = 1; argv[i][j] != '\0'; j++) {
+                // parse opts
+                switch(argv[i][j]) {
+                    case 'h': // help
+                        print_usage(argv[0]);
+                        exit(EXIT_SUCCESS);
+                    case 'q': // quiet
+                        opts.verbose--;
+                        break;
+                    case 'v': // verbose
+                        opts.verbose++;
+                        break;
+                    default:
+                        warn("Skipping unrecognized opt '%c'\n", argv[i][j]);
+                        break;
+                }
+            }
+        } else if(argcount >= MAXARGS) {
+            error("Too many arguments!\n");
+            print_usage(argv[0]);
+            exit(EXIT_FAILURE);
+        } else {
+            argvector[argcount] = argv[i];
+            argcount++;
+        }
+    }
+
+    switch(argcount) {
+        case 1:
+            sourcefile = argvector[0];
             tis.rows = 3;
             tis.cols = 4;
+            debug("Using default dimensions %zur %zuc\n", tis.rows, tis.cols);
+            break;
+        case 2:
+            sourcefile = argvector[0];
+            layoutfile = argvector[1];
             break;
         case 3:
-            layoutfile = argv[2];
-            break;
-        case 4:
-            tis.rows = atoi(argv[2]);
-            tis.cols = atoi(argv[3]);
+            sourcefile = argvector[0];
+            tis.rows = atoi(argvector[1]);
+            tis.cols = atoi(argvector[2]);
+            debug("Read dimensions %zur %zuc from command line\n", tis.rows, tis.cols);
             break;
         default:
             print_usage(argv[0]);
-            return 0;
+            exit(EXIT_SUCCESS);
     }
 
     if(init_layout(&tis, layoutfile) != INIT_OK) {
         // an error has happened, message was printed from init_layout
         exit(EXIT_FAILURE);
-        //destroy(tis);
-        //return -1;
     }
 
-    if(init_nodes(&tis, argv[1]) != INIT_OK) {
+    if(init_nodes(&tis, sourcefile) != INIT_OK) {
         // an error has happened, message was printed from init_nodes
         exit(EXIT_FAILURE);
-        //destroy(tis);
-        //return -1;
     }
 
     for(int time = 0; !tick(&tis) && (timelimit == 0 || time < timelimit); time++) {
@@ -538,6 +577,4 @@ int main(int argc, char** argv) {
     }
 
     exit(EXIT_SUCCESS);
-    //destroy(tis);
-    //return 0;
 }

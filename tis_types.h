@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+/*
+ * Begin enums
+ */
+
 typedef enum tis_op_type {
     TIS_OP_TYPE_INVALID = 0,
     TIS_OP_TYPE_ADD,
@@ -75,6 +79,10 @@ typedef enum tis_io_type {
     TIS_IO_TYPE_IGENERATOR_SEQUENCE,
 } tis_io_type_t;
 
+/*
+ * Begin structs
+ */
+
 typedef struct tis_op_arg {
     tis_op_arg_type_t type;
     union {
@@ -126,6 +134,15 @@ typedef struct tis {
     tis_io_node_t** inputs; // length = cols
     tis_io_node_t** outputs; // length = cols
 } tis_t;
+
+typedef struct tis_opt {
+    int verbose;
+} tis_opt_t;
+extern tis_opt_t opts;
+
+/*
+ * Begin macros
+ */
 
 #define safe_free(ptr) do { \
     if(ptr != NULL) {       \
@@ -180,9 +197,10 @@ typedef struct tis {
     }                                    \
 } while(0)
 
-#define debug(...) fprintf(stderr, "DEBUG:\t"__VA_ARGS__)
-#define warn(...) fprintf(stderr, "WARN:\t"__VA_ARGS__)
-#define error(...) fprintf(stderr, "ERROR:\t"__VA_ARGS__)
+#define spam(...)  do { if(opts.verbose >=  2) { fprintf(stderr, "SPAM:\t"__VA_ARGS__); } } while(0)
+#define debug(...) do { if(opts.verbose >=  1) { fprintf(stderr, "DEBUG:\t"__VA_ARGS__); } } while(0)
+#define warn(...)  do { if(opts.verbose >=  0) { fprintf(stderr, "WARN:\t"__VA_ARGS__); } } while(0)
+#define error(...) do { if(opts.verbose >= -1) { fprintf(stderr, "ERROR:\t"__VA_ARGS__); } } while(0)
 
 #define custom_abort() exit(EXIT_FAILURE)
 
