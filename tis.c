@@ -192,6 +192,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             } else if(strcasecmp(buf, "NUMERIC") == 0) {
                                 debug("Set O%zu to NUMERIC mode\n", index);
                                 tis->outputs[index]->type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
+                                tis->outputs[index]->sep = -1;
                             } else {
                                 goto skip_io_token;
                             }
@@ -204,6 +205,9 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             } else if(strcasecmp(buf, "STDERR") == 0) {
                                 debug("Set O%zu to use stderr\n", index);
                                 tis->outputs[index]->file = stderr;
+                            } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC &&
+                                      sscanf(buf, "%d", &(tis->outputs[index]->sep)) == 1) {
+                                // nothing to do
                             } else {
                                 debug("Set O%zu to use file %.*s\n", index, BUFSIZE, buf);
                                 if((tis->outputs[index]->file = fopen(buf, "a")) == NULL) { // TODO register file for later close?
@@ -279,8 +283,8 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             if(id < preid) {
                 // TODO experiment: what does the game do in this case?
                 warn("Nodes appear out of order, @%d is after @%d. Continuing anyway.\n", id, preid);
-                preid = id;
             }
+            preid = id;
             node = NULL;
             line = -1; // will be zero next line
             for(size_t i = 0; i < tis->size; i++) {

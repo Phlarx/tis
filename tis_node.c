@@ -162,7 +162,7 @@ tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, ti
 }
 
 tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int* value) {
-    debug("Attempting read from register %d on node @%d\n", reg, node->id);
+    debug("Attempting read from register %s on node @%d\n", reg_to_string(reg), node->id);
     switch(reg) {
         case TIS_REGISTER_ACC:
             *value = node->acc;
@@ -189,7 +189,7 @@ tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, 
 }
 
 tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int value) {
-    debug("Attempting write to register %d on node @%d (value %d)\n", reg, node->id, value);
+    debug("Attempting write to register %s on node @%d (value %d)\n", reg_to_string(reg), node->id, value);
     switch(reg) {
         case TIS_REGISTER_ACC:
             node->acc = value;
@@ -217,7 +217,7 @@ tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg,
 }
 
 tis_op_result_t write_register_defer(tis_t* tis, tis_node_t* node, tis_register_t reg) {
-    debug("Attempting write to register %d on node @%d (defer)\n", reg, node->id);
+    debug("Attempting write to register %s on node @%d (defer)\n", reg_to_string(reg), node->id);
     switch(reg) {
         case TIS_REGISTER_ACC:
         case TIS_REGISTER_BAK:

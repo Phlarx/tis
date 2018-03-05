@@ -10,7 +10,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
         tis_op_result_t result = TIS_OP_RESULT_OK;
         char* jump = NULL;
         int value = 0;
-        debug("Run instruction %d on node @%d\n", op->type, node->id);
+        debug("Run instruction %s on node @%d\n", op_to_string(op->type), node->id);
         // TODO assert correct nargs? This is checked when parsing though...
         switch(op->type) {
             case TIS_OP_TYPE_ADD:
@@ -27,7 +27,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
                 }
                 break;
             case TIS_OP_TYPE_HCF:
-                // TODO custom_abort();
+                custom_abort();
                 break;
             case TIS_OP_TYPE_JEZ:
                 if(node->acc == 0) {
@@ -157,7 +157,7 @@ jump_label:
             debug("Jumping to label %.20s on node @%d\n", jump, node->id);
             int i = 0;
             for(; i < TIS_NODE_LINE_COUNT; i++) {
-                if(strcmp(jump, node->code[i]->label) == 0) {
+                if(node->code[i]->label != NULL && strcmp(jump, node->code[i]->label) == 0) {
                     node->index = i-1; // jump to instuction *before* label
                     break;
                 }
@@ -167,7 +167,7 @@ jump_label:
                 result = TIS_OP_RESULT_ERR;
             }
         }
-        debug("Run instruction %d on node @%d result %d\n", op->type, node->id, result);
+        debug("Run instruction %s on node @%d result %s\n", op_to_string(op->type), node->id, result_to_string(result));
         return result;
     } else {
         error("Not yet implemented\n"); // TODO
@@ -179,7 +179,7 @@ tis_op_result_t step_defer(tis_t* tis, tis_node_t* node, tis_op_t* op) {
     // This should only be called when deferring a write to an external port
     // The only op that can do that is MOV
     tis_op_result_t result;
-    debug("Run instruction %d on node @%d (defer)\n", op->type, node->id);
+    debug("Run instruction %s on node @%d (defer)\n", op_to_string(op->type), node->id);
     if(op->type != TIS_OP_TYPE_MOV) {
         // TODO internal error
         result = TIS_OP_RESULT_ERR;
@@ -191,6 +191,6 @@ tis_op_result_t step_defer(tis_t* tis, tis_node_t* node, tis_op_t* op) {
             result = TIS_OP_RESULT_ERR;
         }
     }
-    debug("Run instruction %d on node @%d (defer) result %d\n", op->type, node->id, result);
+    debug("Run instruction %s on node @%d (defer) result %s\n", op_to_string(op->type), node->id, result_to_string(result));
     return result;
 }

@@ -1,7 +1,8 @@
 #ifndef _TIS_TYPES_
 #define _TIS_TYPES_
 
-#include <stddef.h>
+//#include <stddef.h>
+#include <stdlib.h>
 
 /*
  * Begin enums
@@ -25,6 +26,27 @@ typedef enum tis_op_type {
     TIS_OP_TYPE_SWP,
 } tis_op_type_t;
 
+static inline char* op_to_string(tis_op_type_t op) {
+    switch(op) {
+        case TIS_OP_TYPE_ADD: return "ADD";
+        case TIS_OP_TYPE_HCF: return "HCF";
+        case TIS_OP_TYPE_JEZ: return "JEZ";
+        case TIS_OP_TYPE_JGZ: return "JGZ";
+        case TIS_OP_TYPE_JLZ: return "JLZ";
+        case TIS_OP_TYPE_JMP: return "JMP";
+        case TIS_OP_TYPE_JNZ: return "JNZ";
+        case TIS_OP_TYPE_JRO: return "JRO";
+        case TIS_OP_TYPE_MOV: return "MOV";
+        case TIS_OP_TYPE_NEG: return "NEG";
+        case TIS_OP_TYPE_NOP: return "NOP";
+        case TIS_OP_TYPE_SAV: return "SAV";
+        case TIS_OP_TYPE_SUB: return "SUB";
+        case TIS_OP_TYPE_SWP: return "SWP";
+        case TIS_OP_TYPE_INVALID:
+        default: return "INVALID";
+    }
+}
+
 typedef enum tis_op_arg_type {
     TIS_OP_ARG_TYPE_NONE = 0,
     TIS_OP_ARG_TYPE_CONSTANT,
@@ -45,12 +67,38 @@ typedef enum tis_register {
     TIS_REGISTER_LAST,
 } tis_register_t;
 
+static inline char* reg_to_string(tis_register_t reg) {
+    switch(reg) {
+        case TIS_REGISTER_ACC: return "ACC";
+        case TIS_REGISTER_BAK: return "BAK";
+        case TIS_REGISTER_NIL: return "NIL";
+        case TIS_REGISTER_UP: return "UP";
+        case TIS_REGISTER_DOWN: return "DOWN";
+        case TIS_REGISTER_LEFT: return "LEFT";
+        case TIS_REGISTER_RIGHT: return "RIGHT";
+        case TIS_REGISTER_ANY: return "ANY";
+        case TIS_REGISTER_LAST: return "LAST";
+        case TIS_REGISTER_INVALID:
+        default: return "INVALID";
+    }
+}
+
 typedef enum tis_op_result {
     TIS_OP_RESULT_OK,
     TIS_OP_RESULT_READ_WAIT,
     TIS_OP_RESULT_WRITE_WAIT, // Need to run node again in this tick, to finalize write
     TIS_OP_RESULT_ERR,
 } tis_op_result_t;
+
+static inline char* result_to_string(tis_op_result_t result) {
+    switch(result) {
+        case TIS_OP_RESULT_OK: return "OK";
+        case TIS_OP_RESULT_READ_WAIT: return "READ WAIT";
+        case TIS_OP_RESULT_WRITE_WAIT: return "WRITE WAIT";
+        case TIS_OP_RESULT_ERR:
+        default: return "ERROR";
+    }
+}
 
 typedef enum tis_node_state {
     TIS_NODE_STATE_RUNNING,
@@ -122,6 +170,7 @@ typedef struct tis_io_node {
     tis_io_type_t type;
     char* name; // optional
     FILE* file; // TODO union this for other type that don't use a FILE?
+    int sep; // negative is none, otherwise cast to char
 } tis_io_node_t;
 
 typedef struct tis {

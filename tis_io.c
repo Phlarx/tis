@@ -46,8 +46,14 @@ tis_op_result_t output(tis_io_node_t* io, int value) {
             }
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
-            if(fprintf(io->file, "%d"TIS_NUMERIC_SEP, value) > 0) {
-                //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+            if(io->sep >= 0) {
+                if(fprintf(io->file, "%d%c", value, io->sep) > 0) {
+                    //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+                }
+            } else {
+                if(fprintf(io->file, "%d", value) > 0) {
+                    //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+                }
             }
             break;
         case TIS_IO_TYPE_OSTREAM_IMAGE:
