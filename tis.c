@@ -259,6 +259,10 @@ skip_io_token:
 
 int init_nodes(tis_t* tis, char* sourcefile) {
     FILE* source = fopen(sourcefile, "r");
+    if(source == NULL) {
+        error("Unable to open source file '%s' for reading\n", sourcefile);
+        return INIT_FAIL;
+    }
 
     char buf[BUFSIZE];
     int id = -1, preid = -1;

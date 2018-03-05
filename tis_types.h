@@ -252,6 +252,7 @@ extern tis_opt_t opts;
 #define error(...) do { if(opts.verbose >= -1) { fprintf(stderr, "ERROR:\t"__VA_ARGS__); } } while(0)
 
 #define custom_abort() exit(EXIT_FAILURE)
+#define halt() exit(EXIT_SUCCESS)
 
 /*
  * Begin inlines

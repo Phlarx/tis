@@ -1,6 +1,6 @@
 CC=gcc
-#CFLAGS= -Wall -Wextra -Wpedantic -O3 -std=c11
-CFLAGS= -Wall -Wextra -Wpedantic -O0 -std=c11 -g
+CFLAGS= -Wall -Wextra -Wpedantic -O3 -std=c11
+#CFLAGS= -Wall -Wextra -Wpedantic -O0 -std=c11 -g
 RM=rm -f
 
 OBJECTS=tis.o tis_io.o tis_node.o tis_ops.o

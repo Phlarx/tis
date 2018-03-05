@@ -27,7 +27,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
                 }
                 break;
             case TIS_OP_TYPE_HCF:
-                custom_abort();
+                halt();
                 break;
             case TIS_OP_TYPE_JEZ:
                 if(node->acc == 0) {
