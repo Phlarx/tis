@@ -172,13 +172,13 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             if(strcasecmp(buf, "STDIN") == 0 ||
                                strcasecmp(buf, "-") == 0) {
                                 debug("Set I%zu to use stdin\n", index);
-                                tis->inputs[index]->file = stdin; // TODO make sure this doesn't already have a file
+                                tis->inputs[index]->file.file = stdin; // TODO make sure this doesn't already have a file
                             } else {
                                 debug("Set I%zu to use file %.*s\n", index, BUFSIZE, buf);
-                                if((tis->inputs[index]->file = fopen(buf, "r")) == NULL) { // TODO register file for later close?
+                                if((tis->inputs[index]->file.file = fopen(buf, "r")) == NULL) {
                                     error("Unable to open %.*s for reading\n", BUFSIZE, buf); // TODO what to do about this? error out?
                                 }
-                                register_file_handle(tis->inputs[index]->file);
+                                register_file_handle(tis->inputs[index]->file.file);
                             }
                         } else {
                             // TODO node type not implemented? internal error?
@@ -192,7 +192,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             } else if(strcasecmp(buf, "NUMERIC") == 0) {
                                 debug("Set O%zu to NUMERIC mode\n", index);
                                 tis->outputs[index]->type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
-                                tis->outputs[index]->sep = -1;
+                                tis->outputs[index]->file.sep = -1;
                             } else {
                                 goto skip_io_token;
                             }
@@ -201,19 +201,19 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             if(strcasecmp(buf, "STDOUT") == 0 ||
                                strcasecmp(buf, "-") == 0) {
                                 debug("Set O%zu to use stdout\n", index);
-                                tis->outputs[index]->file = stdout; // TODO make sure this doesn't already have a file
+                                tis->outputs[index]->file.file = stdout; // TODO make sure this doesn't already have a file
                             } else if(strcasecmp(buf, "STDERR") == 0) {
                                 debug("Set O%zu to use stderr\n", index);
-                                tis->outputs[index]->file = stderr;
+                                tis->outputs[index]->file.file = stderr;
                             } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC &&
-                                      sscanf(buf, "%d", &(tis->outputs[index]->sep)) == 1) {
+                                      sscanf(buf, "%d", &(tis->outputs[index]->file.sep)) == 1) {
                                 // nothing to do
                             } else {
                                 debug("Set O%zu to use file %.*s\n", index, BUFSIZE, buf);
-                                if((tis->outputs[index]->file = fopen(buf, "a")) == NULL) { // TODO register file for later close?
+                                if((tis->outputs[index]->file.file = fopen(buf, "a")) == NULL) {
                                     error("Unable to open %.*s for writing\n", BUFSIZE, buf); // TODO what to do about this? error out?
                                 }
-                                register_file_handle(tis->outputs[index]->file);
+                                register_file_handle(tis->outputs[index]->file.file);
                             }
                         } else {
                             // TODO node type not implemented? internal error?

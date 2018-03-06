@@ -10,13 +10,13 @@ tis_op_result_t input(tis_io_node_t* io, int* value) {
     int in = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            if((in = fgetc(io->file)) == EOF) {
+            if((in = fgetc(io->file.file)) == EOF) {
                 return TIS_OP_RESULT_READ_WAIT;
             }
             *value = clamp(in);
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
-            if(fscanf(io->file, " %d ", &in) != 1) {
+            if(fscanf(io->file.file, " %d ", &in) != 1) {
                 return TIS_OP_RESULT_READ_WAIT;
             }
             *value = clamp(in);
@@ -41,17 +41,17 @@ tis_op_result_t output(tis_io_node_t* io, int value) {
     int out = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            if((out = fputc(value, io->file)) == EOF) {
+            if((out = fputc(value, io->file.file)) == EOF) {
                 //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
             }
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
-            if(io->sep >= 0) {
-                if(fprintf(io->file, "%d%c", value, io->sep) > 0) {
+            if(io->file.sep >= 0) {
+                if(fprintf(io->file.file, "%d%c", value, io->file.sep) > 0) {
                     //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
                 }
             } else {
-                if(fprintf(io->file, "%d", value) > 0) {
+                if(fprintf(io->file.file, "%d", value) > 0) {
                     //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
                 }
             }

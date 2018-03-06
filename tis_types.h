@@ -120,11 +120,13 @@ typedef enum tis_io_type {
     TIS_IO_TYPE_IOSTREAM_ASCII,
     TIS_IO_TYPE_IOSTREAM_NUMERIC,
     TIS_IO_TYPE_OSTREAM_IMAGE,
-    TIS_IO_TYPE_IGENERATOR_ALGEBRAIC,
-    TIS_IO_TYPE_IGENERATOR_CONSTANT,
-    TIS_IO_TYPE_IGENERATOR_CYCLIC,
-    TIS_IO_TYPE_IGENERATOR_RANDOM,
-    TIS_IO_TYPE_IGENERATOR_SEQUENCE,
+    TIS_IO_TYPE_IGENERATOR_LIST, // echo given numbers once
+    TIS_IO_TYPE_IGENERATOR_CYCLIC, // repeat given numbers forever
+    TIS_IO_TYPE_IGENERATOR_RANDOM, // on the interval specified, or -999..999 by default
+    TIS_IO_TYPE_IGENERATOR_ALGEBRAIC, // need scale, start value and increment (scale is not necessary here, but keep for consistency)
+    TIS_IO_TYPE_IGENERATOR_GEOMETRIC, // need scale, start value and multiplier
+    TIS_IO_TYPE_IGENERATOR_HARMONIC, // need scale, start value and increment (reciprocal of ALGEBRAIC)
+    TIS_IO_TYPE_IGENERATOR_OEIS, // grab the b-file to a temp file, then read like NUMERIC? (make this compile-out-able if so)
 } tis_io_type_t;
 
 /*
@@ -155,8 +157,10 @@ typedef struct tis_node {
     size_t row;
     size_t col;
     char* name; // optional (no equivalent in-game)
-    tis_op_t* code[15]; // up to 15 lines of code (used by compute)
-    int data[15]; // up to 15 cells for data (used by memory)
+    union {
+        tis_op_t* code[15]; // up to 15 lines of code (used by compute)
+        int data[15]; // up to 15 cells for data (used by memory)
+    };
     int acc; // (used by compute)
     int bak; // (used by compute)
     int writebuf; // (used by compute)
@@ -169,8 +173,17 @@ typedef struct tis_node {
 typedef struct tis_io_node {
     tis_io_type_t type;
     char* name; // optional
-    FILE* file; // TODO union this for other type that don't use a FILE?
-    int sep; // negative is none, otherwise cast to char
+    union {
+        struct {
+            FILE* file;
+            int sep; // negative is none, otherwise cast to char
+        } file;
+        struct {
+            int current; // current is unscaled and (in the case of HARMONIC) unreciprocated
+            int scale; // scaling before casting to int and clamping
+            int arg; // either increment or multiplier
+        } seq;
+    };
 } tis_io_node_t;
 
 typedef struct tis {
