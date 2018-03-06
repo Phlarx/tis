@@ -21,11 +21,13 @@ tis_op_result_t input(tis_io_node_t* io, int* value) {
             }
             *value = clamp(in);
             break;
-        case TIS_IO_TYPE_IGENERATOR_ALGEBRAIC:
-        case TIS_IO_TYPE_IGENERATOR_CONSTANT:
+        case TIS_IO_TYPE_IGENERATOR_LIST:
         case TIS_IO_TYPE_IGENERATOR_CYCLIC:
         case TIS_IO_TYPE_IGENERATOR_RANDOM:
-        case TIS_IO_TYPE_IGENERATOR_SEQUENCE:
+        case TIS_IO_TYPE_IGENERATOR_ALGEBRAIC:
+        case TIS_IO_TYPE_IGENERATOR_GEOMETRIC:
+        case TIS_IO_TYPE_IGENERATOR_HARMONIC:
+        case TIS_IO_TYPE_IGENERATOR_OEIS:
         default:
             error("Not yet implemented\n");
             return TIS_OP_RESULT_ERR;

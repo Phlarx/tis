@@ -12,24 +12,12 @@ tis_io.o: tis_types.h
 tis_node.o: tis_types.h tis_node.h tis_ops.h tis_io.h
 tis_ops.o: tis_types.h tis_node.h
 
-tis.f: tis.f.o tis_io.o tis_node.o tis_ops.o
-	${CC} $^ -o $@
-tis.f.o: tis_types.h tis_node.h
-tis.f.c: tis.c tis_types.h tis_ops.h
-	grep "#include <" $< > $@
-	grep -v "#include <" $< > tis.temp.c
-	${CPP} tis.temp.c -o tis.temp.i
-	grep -v "^#" tis.temp.i >> $@
-	-${RM} tis.temp.c tis.temp.i
+all: tis
 
-all: tis tis.f
-
-clean: cleanobj cleanexe cleanf
+clean: cleanobj cleanexe
 cleanobj:
 	-${RM} ${OBJECTS}
 cleanexe:
 	-${RM} tis
-cleanf:
-	-${RM} tis.f tis.f.o tis.f.c
 
-.PHONY: all clean cleanobj cleanexe cleanf
+.PHONY: all clean cleanobj cleanexe

@@ -247,11 +247,11 @@ skip_io_token:
         // set first input to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->inputs[0] = calloc(1, sizeof(tis_io_node_t));
         tis->inputs[0]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
-        tis->inputs[0]->file = stdin;
+        tis->inputs[0]->file.file = stdin;
         // set last output to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->outputs[tis->cols - 1] = calloc(1, sizeof(tis_io_node_t));
         tis->outputs[tis->cols - 1]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
-        tis->outputs[tis->cols - 1]->file = stdout;
+        tis->outputs[tis->cols - 1]->file.file = stdout;
     }
 
     return INIT_OK;
