@@ -5,6 +5,13 @@
 #include <stdlib.h>
 
 /*
+ * Begin constants
+ */
+
+#define TIS_NODE_LINE_COUNT 15
+#define TIS_NODE_LINE_LENGTH 19 // TODO is this correct?
+
+/*
  * Begin enums
  */
 
@@ -153,19 +160,19 @@ typedef struct tis_op {
 
 typedef struct tis_node {
     tis_node_type_t type;
-    int id; // The id from the source, non-compute nodes are skipped
+    int id; // The id from the source, non-compute nodes are skipped (used by compute)
     size_t row;
     size_t col;
     char* name; // optional (no equivalent in-game)
     union {
-        tis_op_t* code[15]; // up to 15 lines of code (used by compute)
-        int data[15]; // up to 15 cells for data (used by memory)
+        tis_op_t* code[TIS_NODE_LINE_COUNT]; // up to 15 lines of code (used by compute)
+        int data[TIS_NODE_LINE_COUNT]; // up to 15 cells for data (used by memory) // TODO is this the correct capacity for stack nodes?
     };
     int acc; // (used by compute)
     int bak; // (used by compute)
-    int writebuf; // (used by compute)
     tis_register_t last; // (used by compute)
-    tis_register_t writereg; // UpDownLeftRightAny -> ready, Nil -> complete, Invalid -> quiet (used by compute)
+    int writebuf; // (used by communicative types)
+    tis_register_t writereg; // UpDownLeftRightAny -> ready, Nil -> complete, Invalid -> quiet (used by all types)
     int index; // for memory nodes is addr, for compute is ip
     tis_node_state_t laststate; // managed externally
 } tis_node_t;
@@ -238,25 +245,23 @@ extern tis_opt_t opts;
     }                                                \
 } while(0)
 
-#define safe_free_node(ptr) do {                     \
-    if(ptr != NULL) {                                \
-        safe_free(ptr->name);                        \
-        for(size_t nodei = 0; nodei < 15; nodei++) { \
-            safe_free_op(ptr->code[nodei]);          \
-        }                                            \
-        /* TODO safe_free(ptr->data); */             \
-        free(ptr);                                   \
-        ptr = NULL;                                  \
-    }                                                \
+#define safe_free_node(ptr) do {                                      \
+    if(ptr != NULL) {                                                 \
+        safe_free(ptr->name);                                         \
+        for(size_t nodei = 0; nodei < TIS_NODE_LINE_COUNT; nodei++) { \
+            safe_free_op(ptr->code[nodei]);                           \
+        }                                                             \
+        free(ptr);                                                    \
+        ptr = NULL;                                                   \
+    }                                                                 \
 } while(0)
 
-#define safe_free_io_node(ptr) do {      \
-    if(ptr != NULL) {                    \
-        safe_free(ptr->name);            \
-        /* TODO fclose(ptr->file); */    \
-        free(ptr);                       \
-        ptr = NULL;                      \
-    }                                    \
+#define safe_free_io_node(ptr) do { \
+    if(ptr != NULL) {               \
+        safe_free(ptr->name);       \
+        free(ptr);                  \
+        ptr = NULL;                 \
+    }                               \
 } while(0)
 
 #define spam(...)  do { if(opts.verbose >=  2) { fprintf(stderr, "SPAM:\t"__VA_ARGS__); } } while(0)
@@ -264,7 +269,7 @@ extern tis_opt_t opts;
 #define warn(...)  do { if(opts.verbose >=  0) { fprintf(stderr, "WARN:\t"__VA_ARGS__); } } while(0)
 #define error(...) do { if(opts.verbose >= -1) { fprintf(stderr, "ERROR:\t"__VA_ARGS__); } } while(0)
 
-#define custom_abort() exit(EXIT_FAILURE)
+#define bork() exit(EXIT_FAILURE)
 #define halt() exit(EXIT_SUCCESS)
 
 /*

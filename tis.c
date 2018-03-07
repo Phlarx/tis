@@ -94,31 +94,37 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
             while(isspace(ch = fgetc(layout))) {
                 // discard whitespace
             }
+            tis->nodes[i] = calloc(1, sizeof(tis_node_t));
+            tis->nodes[i]->row = i / tis->cols;
+            tis->nodes[i]->col = i % tis->cols;
+            tis->nodes[i]->writereg = TIS_REGISTER_INVALID;
             switch(ch) {
                 case 'C': // compute
                 case 'c':
-                    tis->nodes[i] = calloc(1, sizeof(tis_node_t));
                     tis->nodes[i]->type = TIS_NODE_TYPE_COMPUTE;
                     tis->nodes[i]->id = id++;
-                    tis->nodes[i]->row = i / tis->cols;
-                    tis->nodes[i]->col = i % tis->cols;
-                    tis->nodes[i]->writereg = TIS_REGISTER_INVALID;
                     tis->nodes[i]->last = TIS_REGISTER_INVALID;
                     break;
                 case 'M': // memory (assume stack memory)
                 case 'm':
                 case 'S': // stack memory
                 case 's':
-                    error("Not yet implemented\n");
+                    tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_STACK;
+                    tis->nodes[i]->index = 0;
+                    error("Node type not yet implemented\n");
+                    fclose(layout);
                     return INIT_FAIL;
                 case 'R': // random access memory
                 case 'r':
-                    error("Not yet implemented\n");
+                    tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_RAM;
+                    tis->nodes[i]->index = 0;
+                    error("Node type not yet implemented\n");
+                    fclose(layout);
                     return INIT_FAIL;
-                case 'D': // damaged
+                case 'D': // damaged / disabled
                 case 'd':
-                    error("Not yet implemented\n");
-                    return INIT_FAIL;
+                    tis->nodes[i]->type = TIS_NODE_TYPE_DAMAGED;
+                    break;
                 case EOF:
                     error("Unexpected EOF while reading node specifiers\n");
                     fclose(layout);
@@ -169,19 +175,24 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             }
                         } else if(tis->inputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII ||
                                   tis->inputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC) {
-                            if(strcasecmp(buf, "STDIN") == 0 ||
-                               strcasecmp(buf, "-") == 0) {
-                                debug("Set I%zu to use stdin\n", index);
-                                tis->inputs[index]->file.file = stdin; // TODO make sure this doesn't already have a file
-                            } else {
-                                debug("Set I%zu to use file %.*s\n", index, BUFSIZE, buf);
-                                if((tis->inputs[index]->file.file = fopen(buf, "r")) == NULL) {
-                                    error("Unable to open %.*s for reading\n", BUFSIZE, buf); // TODO what to do about this? error out?
+                            if(tis->inputs[index]->file.file == NULL) {
+                                if(strcasecmp(buf, "STDIN") == 0 ||
+                                    strcasecmp(buf, "-") == 0) {
+                                    debug("Set I%zu to use stdin\n", index);
+                                    tis->inputs[index]->file.file = stdin; // TODO make sure this doesn't already have a file
+                                } else {
+                                    debug("Set I%zu to use file %.*s\n", index, BUFSIZE, buf);
+                                    if((tis->inputs[index]->file.file = fopen(buf, "r")) == NULL) {
+                                        error("Unable to open %.*s for reading\n", BUFSIZE, buf); // TODO what to do about this? error out?
+                                    }
+                                    register_file_handle(tis->inputs[index]->file.file);
                                 }
-                                register_file_handle(tis->inputs[index]->file.file);
+                            } else {
+                                goto skip_io_token;
                             }
                         } else {
                             // TODO node type not implemented? internal error?
+                            goto skip_io_token;
                         }
                         break;
                     case 1:
@@ -198,25 +209,30 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                             }
                         } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_ASCII ||
                                   tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC) {
-                            if(strcasecmp(buf, "STDOUT") == 0 ||
-                               strcasecmp(buf, "-") == 0) {
-                                debug("Set O%zu to use stdout\n", index);
-                                tis->outputs[index]->file.file = stdout; // TODO make sure this doesn't already have a file
-                            } else if(strcasecmp(buf, "STDERR") == 0) {
-                                debug("Set O%zu to use stderr\n", index);
-                                tis->outputs[index]->file.file = stderr;
+                            if(tis->outputs[index]->file.file == NULL) {
+                                if(strcasecmp(buf, "STDOUT") == 0 ||
+                                    strcasecmp(buf, "-") == 0) {
+                                    debug("Set O%zu to use stdout\n", index);
+                                    tis->outputs[index]->file.file = stdout; // TODO make sure this doesn't already have a file
+                                } else if(strcasecmp(buf, "STDERR") == 0) {
+                                    debug("Set O%zu to use stderr\n", index);
+                                    tis->outputs[index]->file.file = stderr;
+                                } else {
+                                    debug("Set O%zu to use file %.*s\n", index, BUFSIZE, buf);
+                                    if((tis->outputs[index]->file.file = fopen(buf, "a")) == NULL) {
+                                        error("Unable to open %.*s for writing\n", BUFSIZE, buf); // TODO what to do about this? error out?
+                                    }
+                                    register_file_handle(tis->outputs[index]->file.file);
+                                }
                             } else if(tis->outputs[index]->type == TIS_IO_TYPE_IOSTREAM_NUMERIC &&
                                       sscanf(buf, "%d", &(tis->outputs[index]->file.sep)) == 1) {
-                                // nothing to do
+                                debug("Set O%zu separator to %d\n", index, tis->outputs[index]->file.sep);
                             } else {
-                                debug("Set O%zu to use file %.*s\n", index, BUFSIZE, buf);
-                                if((tis->outputs[index]->file.file = fopen(buf, "a")) == NULL) {
-                                    error("Unable to open %.*s for writing\n", BUFSIZE, buf); // TODO what to do about this? error out?
-                                }
-                                register_file_handle(tis->outputs[index]->file.file);
+                                goto skip_io_token;
                             }
                         } else {
-                            // TODO node type not implemented? internal error?
+                            // TODO io node type not implemented? internal error?
+                            goto skip_io_token;
                         }
                         break;
                     case 2:
@@ -277,7 +293,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             *nl = '\0';
         }
 
-        debug("parse line:  %.*s\n", BUFSIZE, buf);
+        spam("Parse line:  %.*s\n", BUFSIZE, buf);
 
         if(buf[0] == '\0') {
             // empty line; ignore
@@ -533,7 +549,7 @@ int tick(tis_t* tis) {
             tis->nodes[i]->laststate = state;
         }
     }
-    debug("quiescent = %d\n", quiescent);
+    spam("System quiescent? %d\n", quiescent);
     return quiescent;
 }
 
@@ -609,8 +625,8 @@ int main(int argc, char** argv) {
             break;
         case 3:
             sourcefile = argvector[0];
-            tis.rows = atoi(argvector[1]);
-            tis.cols = atoi(argvector[2]);
+            tis.rows = atoi(argvector[1]); // TODO ensure that there is nothing else in this arg
+            tis.cols = atoi(argvector[2]); // TODO ensure that there is nothing else in this arg
             debug("Read dimensions %zur %zuc from command line\n", tis.rows, tis.cols);
             break;
         default:

@@ -27,11 +27,14 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
             return TIS_NODE_STATE_WRITE_WAIT;
         } else if(result == TIS_OP_RESULT_ERR) {
             error("An error has occurred!!!\n");
-            //custom_abort();
+            bork();
         } else {
-            // BAD INTERNAL ERROR BAD
-            //custom_abort();
+            // BAD INTERNAL ERROR BAD this is out of sync with the enum
+            error("INTERNAL: An error has occurred!!!\n");
+            bork();
         }
+    } else if(node->type == TIS_NODE_TYPE_DAMAGED) {
+        return TIS_NODE_STATE_IDLE;
     }
     return TIS_NODE_STATE_IDLE;
 }
@@ -39,7 +42,8 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
 tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
     if(node->type != TIS_NODE_TYPE_COMPUTE) {
         // only compute node can defer
-        //custom_abort();
+        error("INTERNAL: Cannot run deferred instructions on this node type\n");
+        bork();
     } else {
         tis_op_result_t result = step_defer(tis, node, node->code[node->index]);
         if(result == TIS_OP_RESULT_OK) {
@@ -47,15 +51,16 @@ tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
             return TIS_NODE_STATE_RUNNING;
         } else if(result == TIS_OP_RESULT_READ_WAIT) {
             // internal error
-            //custom_abort();
+            bork();
         } else if(result == TIS_OP_RESULT_WRITE_WAIT) {
             return TIS_NODE_STATE_WRITE_WAIT;
         } else if(result == TIS_OP_RESULT_ERR) {
             error("An error has occurred!!!\n");
-            //custom_abort();
+            bork();
         } else {
-            // BAD INTERNAL ERROR BAD
-            //custom_abort();
+            // BAD INTERNAL ERROR BAD this is out of sync with the enum
+            error("INTERNAL: An error has occurred!!!\n");
+            bork();
         }
     }
     return TIS_NODE_STATE_IDLE;
@@ -144,7 +149,7 @@ tis_op_result_t write_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regi
     node->writebuf = value;
     // TODO if writing down from bottom row, write output instead, and return OK
     if((reg == TIS_REGISTER_DOWN || reg == TIS_REGISTER_ANY) && node->row+1 == tis->rows) {
-        debug("Write value %d to output index %zu\n", value, node->col);
+        spam("Write value %d to output index %zu\n", value, node->col);
         return output(tis->outputs[node->col], value);
     }
     // TODO experiment: does writing to output claim 1 or 2 ticks? (move to other claims 2)
@@ -162,7 +167,7 @@ tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, ti
 }
 
 tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int* value) {
-    debug("Attempting read from register %s on node @%d\n", reg_to_string(reg), node->id);
+    spam("Attempting read from register %s on node @%d\n", reg_to_string(reg), node->id);
     switch(reg) {
         case TIS_REGISTER_ACC:
             *value = node->acc;
@@ -189,7 +194,7 @@ tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, 
 }
 
 tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int value) {
-    debug("Attempting write to register %s on node @%d (value %d)\n", reg_to_string(reg), node->id, value);
+    spam("Attempting write to register %s on node @%d (value %d)\n", reg_to_string(reg), node->id, value);
     switch(reg) {
         case TIS_REGISTER_ACC:
             node->acc = value;
@@ -217,7 +222,7 @@ tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg,
 }
 
 tis_op_result_t write_register_defer(tis_t* tis, tis_node_t* node, tis_register_t reg) {
-    debug("Attempting write to register %s on node @%d (defer)\n", reg_to_string(reg), node->id);
+    spam("Attempting write to register %s on node @%d (defer)\n", reg_to_string(reg), node->id);
     switch(reg) {
         case TIS_REGISTER_ACC:
         case TIS_REGISTER_BAK:
