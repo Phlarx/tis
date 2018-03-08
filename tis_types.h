@@ -245,15 +245,17 @@ extern tis_opt_t opts;
     }                                                \
 } while(0)
 
-#define safe_free_node(ptr) do {                                      \
-    if(ptr != NULL) {                                                 \
-        safe_free(ptr->name);                                         \
-        for(size_t nodei = 0; nodei < TIS_NODE_LINE_COUNT; nodei++) { \
-            safe_free_op(ptr->code[nodei]);                           \
-        }                                                             \
-        free(ptr);                                                    \
-        ptr = NULL;                                                   \
-    }                                                                 \
+#define safe_free_node(ptr) do {                                          \
+    if(ptr != NULL) {                                                     \
+        safe_free(ptr->name);                                             \
+        if(ptr->type == TIS_NODE_TYPE_COMPUTE) {                          \
+            for(size_t nodei = 0; nodei < TIS_NODE_LINE_COUNT; nodei++) { \
+                safe_free_op(ptr->code[nodei]);                           \
+            }                                                             \
+        }                                                                 \
+        free(ptr);                                                        \
+        ptr = NULL;                                                       \
+    }                                                                     \
 } while(0)
 
 #define safe_free_io_node(ptr) do { \

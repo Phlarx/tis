@@ -33,6 +33,30 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
             error("INTERNAL: An error has occurred!!!\n");
             bork();
         }
+    } else if(node->type == TIS_NODE_TYPE_MEMORY_STACK) {
+        // TODO experiment: can a stack node handle simultaneous read and write? What does this do, even? Should read or write be first?
+        tis_node_state_t state = TIS_NODE_STATE_IDLE;
+        if(node->index < TIS_NODE_LINE_COUNT) {
+            // if capacity, try to read
+            spam("Stack node attempting to read to index %d\n", node->index); // TODO add node id to these messages (6 total)
+            if(read_register(tis, node, TIS_REGISTER_ANY, &(node->data[node->index])) == TIS_OP_RESULT_OK) {
+                spam("Stack node read success to index %d\n", node->index);
+                node->index++;
+                state = TIS_NODE_STATE_RUNNING;
+            }
+        }
+        if(node->index > 0) {
+            spam("Stack node attempting to write from index %d\n", node->index-1);
+            tis_op_result_t result = write_register(tis, node, TIS_REGISTER_ANY, node->data[node->index-1]);
+            if(result == TIS_OP_RESULT_OK) {
+                spam("Stack node write immediate success from index %d\n", node->index-1);
+                node->index--;
+                state = TIS_NODE_STATE_RUNNING;
+            } else {
+                state = TIS_OP_RESULT_WRITE_WAIT;
+            }
+        }
+        return state;
     } else if(node->type == TIS_NODE_TYPE_DAMAGED) {
         return TIS_NODE_STATE_IDLE;
     }
@@ -40,11 +64,7 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
 }
 
 tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
-    if(node->type != TIS_NODE_TYPE_COMPUTE) {
-        // only compute node can defer
-        error("INTERNAL: Cannot run deferred instructions on this node type\n");
-        bork();
-    } else {
+    if(node->type == TIS_NODE_TYPE_COMPUTE) {
         tis_op_result_t result = step_defer(tis, node, node->code[node->index]);
         if(result == TIS_OP_RESULT_OK) {
             node->index = (node->index + 1) % TIS_NODE_LINE_COUNT;
@@ -62,6 +82,30 @@ tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
             error("INTERNAL: An error has occurred!!!\n");
             bork();
         }
+    } else if(node->type == TIS_NODE_TYPE_MEMORY_STACK) {
+        spam("Stack node attempting to write (defer) from index %d\n", node->index-1);
+        tis_op_result_t result = write_register_defer(tis, node, TIS_REGISTER_ANY);
+        if(result == TIS_OP_RESULT_OK) {
+            spam("Stack node write deferred success from index %d\n", node->index-1);
+            node->index--;
+            return TIS_NODE_STATE_RUNNING;
+        } else if(result == TIS_OP_RESULT_READ_WAIT) {
+            // internal error
+            bork();
+        } else if(result == TIS_OP_RESULT_WRITE_WAIT) {
+            return TIS_NODE_STATE_WRITE_WAIT;
+        } else if(result == TIS_OP_RESULT_ERR) {
+            error("An error has occurred!!!\n");
+            bork();
+        } else {
+            // BAD INTERNAL ERROR BAD this is out of sync with the enum
+            error("INTERNAL: An error has occurred!!!\n");
+            bork();
+        }
+    } else {
+        // only compute and memory nodes can defer
+        error("INTERNAL: Cannot run deferred instructions on this node type\n");
+        bork();
     }
     return TIS_NODE_STATE_IDLE;
 }

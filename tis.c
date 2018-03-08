@@ -41,6 +41,9 @@ void close_file_handles() {
     }
 }
 
+/*
+ * Parse the layout file, allocate structural memory, initialize all things
+ */
 int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
     FILE* layout = NULL;
     if(layoutfile != NULL) {
@@ -98,6 +101,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
             tis->nodes[i]->row = i / tis->cols;
             tis->nodes[i]->col = i % tis->cols;
             tis->nodes[i]->writereg = TIS_REGISTER_INVALID;
+            tis->nodes[i]->id = -1; // This is overwritten for compute nodes only
             switch(ch) {
                 case 'C': // compute
                 case 'c':
@@ -111,9 +115,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 case 's':
                     tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_STACK;
                     tis->nodes[i]->index = 0;
-                    error("Node type not yet implemented\n");
-                    fclose(layout);
-                    return INIT_FAIL;
+                    break;
                 case 'R': // random access memory
                 case 'r':
                     tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_RAM;
@@ -179,7 +181,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 if(strcasecmp(buf, "STDIN") == 0 ||
                                     strcasecmp(buf, "-") == 0) {
                                     debug("Set I%zu to use stdin\n", index);
-                                    tis->inputs[index]->file.file = stdin; // TODO make sure this doesn't already have a file
+                                    tis->inputs[index]->file.file = stdin;
                                 } else {
                                     debug("Set I%zu to use file %.*s\n", index, BUFSIZE, buf);
                                     if((tis->inputs[index]->file.file = fopen(buf, "r")) == NULL) {
@@ -213,7 +215,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 if(strcasecmp(buf, "STDOUT") == 0 ||
                                     strcasecmp(buf, "-") == 0) {
                                     debug("Set O%zu to use stdout\n", index);
-                                    tis->outputs[index]->file.file = stdout; // TODO make sure this doesn't already have a file
+                                    tis->outputs[index]->file.file = stdout;
                                 } else if(strcasecmp(buf, "STDERR") == 0) {
                                     debug("Set O%zu to use stderr\n", index);
                                     tis->outputs[index]->file.file = stderr;
@@ -273,6 +275,10 @@ skip_io_token:
     return INIT_OK;
 }
 
+/*
+ * Parse and load the code from the source file into the compute nodes.
+ * Other nodes types need not be touched here.
+ */
 int init_nodes(tis_t* tis, char* sourcefile) {
     FILE* source = fopen(sourcefile, "r");
     if(source == NULL) {
@@ -582,24 +588,29 @@ int main(int argc, char** argv) {
 
     for(int i = 1; i < argc; i++) {
         if(argv[i][0] == '-') {
-            for(int j = 1; argv[i][j] != '\0'; j++) {
-                // parse opts
-                switch(argv[i][j]) {
-                    case 'h': // help
-                        print_usage(argv[0]);
-                        exit(EXIT_SUCCESS);
-                    case 'l': // layoutmode toggle
-                        layoutmode = 1;
-                        break;
-                    case 'q': // quiet
-                        opts.verbose--;
-                        break;
-                    case 'v': // verbose
-                        opts.verbose++;
-                        break;
-                    default:
-                        warn("Skipping unrecognized opt '%c'\n", argv[i][j]);
-                        break;
+            if(argv[i][1] == '-') {
+                // parse long opts
+                warn("Skipping unrecognized long opt '%s'\n", argv[i]);
+            } else {
+                for(int j = 1; argv[i][j] != '\0'; j++) {
+                    // parse short opts
+                    switch(argv[i][j]) {
+                        case 'h': // help
+                            print_usage(argv[0]);
+                            exit(EXIT_SUCCESS);
+                        case 'l': // layoutmode toggle
+                            layoutmode = 1;
+                            break;
+                        case 'q': // quiet
+                            opts.verbose--;
+                            break;
+                        case 'v': // verbose
+                            opts.verbose++;
+                            break;
+                        default:
+                            warn("Skipping unrecognized short opt '-%c'\n", argv[i][j]);
+                            break;
+                   }
                 }
             }
         } else if(argcount >= MAXARGS) {
