@@ -10,7 +10,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
         tis_op_result_t result = TIS_OP_RESULT_OK;
         char* jump = NULL;
         int value = 0;
-        spam("Run instruction %s on node @%d\n", op_to_string(op->type), node->id);
+        spam("Run instruction %s on node %s\n", op_to_string(op->type), node_name(node));
         // TODO assert correct nargs? This is checked when parsing though...
         switch(op->type) {
             case TIS_OP_TYPE_ADD:
@@ -22,7 +22,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
                         node->acc = clamp(node->acc + value);
                     }
                 } else {
-                    error("INTERNAL: Invalid arg type for ADD (%d) on node @%d\n", op->src.type, node->id);
+                    error("INTERNAL: Invalid arg type for ADD (%d) on node %s\n", op->src.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 break;
@@ -49,7 +49,7 @@ jump_label:
                 if(op->src.type == TIS_OP_ARG_TYPE_LABEL) {
                     jump = op->src.label;
                 } else {
-                    error("INTERNAL: Unable to jump to non-label argument on node @%d\n", node->id);
+                    error("INTERNAL: Unable to jump to non-label argument on node %s\n", node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 break;
@@ -67,7 +67,7 @@ jump_label:
                         node->index = (node->index + value) % TIS_NODE_LINE_COUNT;
                     }
                 } else {
-                    error("INTERNAL: Invalid arg type for JRO (%d) on node @%d\n", op->src.type, node->id);
+                    error("INTERNAL: Invalid arg type for JRO (%d) on node %s\n", op->src.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 break;
@@ -85,13 +85,13 @@ jump_label:
                         break;
                     }
                 } else {
-                    error("INTERNAL: Invalid source arg type for MOV (%d) on node @%d\n", op->src.type, node->id);
+                    error("INTERNAL: Invalid source arg type for MOV (%d) on node %s\n", op->src.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 if(op->dst.type == TIS_OP_ARG_TYPE_REGISTER) {
                     result = write_register(tis, node, op->dst.reg, value);
                 } else {
-                    error("INTERNAL: Invalid dest arg type for MOV (%d) on node @%d\n", op->dst.type, node->id);
+                    error("INTERNAL: Invalid dest arg type for MOV (%d) on node %s\n", op->dst.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 break;
@@ -114,7 +114,7 @@ jump_label:
                         node->acc = clamp(node->acc - value);
                     }
                 } else {
-                    error("INTERNAL: Invalid arg type for SUB (%d) on node @%d\n", op->src.type, node->id);
+                    error("INTERNAL: Invalid arg type for SUB (%d) on node %s\n", op->src.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
                 }
                 break;
@@ -125,12 +125,12 @@ jump_label:
                 break;
             case TIS_OP_TYPE_INVALID:
             default:
-                error("Attempted to run an inavlid instruction on node @%d\n", node->id);
+                error("Attempted to run an inavlid instruction on node %s\n", node_name(node));
                 result = TIS_OP_RESULT_ERR;
                 break;
         }
         if(jump != NULL) {
-            spam("Jumping to label %.20s on node @%d\n", jump, node->id);
+            spam("Jumping to label %.20s on node %s\n", jump, node_name(node));
             int i = 0;
             for(; i < TIS_NODE_LINE_COUNT; i++) {
                 if(node->code[i]->label != NULL && strcmp(jump, node->code[i]->label) == 0) {
@@ -140,11 +140,11 @@ jump_label:
             }
             if(i == TIS_NODE_LINE_COUNT) {
                 // unable to jump to missing label
-                error("Label %.20s not found in node @%d, unable to jump\n", jump, node->id);
+                error("Label %.20s not found in node %s, unable to jump\n", jump, node_name(node));
                 result = TIS_OP_RESULT_ERR;
             }
         }
-        spam("Run instruction %s on node @%d result %s\n", op_to_string(op->type), node->id, result_to_string(result));
+        spam("Run instruction %s on node %s result %s\n", op_to_string(op->type), node_name(node), result_to_string(result));
         return result;
     } else {
         error("INTERNAL: Cannot run instructions on this node type\n");
@@ -157,19 +157,19 @@ tis_op_result_t step_defer(tis_t* tis, tis_node_t* node, tis_op_t* op) {
         // This should only be called when deferring a write to an external port
         // The only op that can do that is MOV
         tis_op_result_t result;
-        spam("Run instruction %s on node @%d (defer)\n", op_to_string(op->type), node->id);
+        spam("Run instruction %s on node %s (defer)\n", op_to_string(op->type), node_name(node));
         if(op->type != TIS_OP_TYPE_MOV) {
-            error("INTERNAL: Only MOV instructions may be deferred; node @%d\n", node->id);
+            error("INTERNAL: Only MOV instructions may be deferred; node %s\n", node_name(node));
             result = TIS_OP_RESULT_ERR;
         } else {
             if(op->dst.type == TIS_OP_ARG_TYPE_REGISTER) {
                 result = write_register_defer(tis, node, op->dst.reg);
             } else {
-                error("INTERNAL: Invalid dest arg type for MOV (%d) on node @%d\n", op->dst.type, node->id);
+                error("INTERNAL: Invalid dest arg type for MOV (%d) on node %s\n", op->dst.type, node_name(node));
                 result = TIS_OP_RESULT_ERR;
             }
         }
-        spam("Run instruction %s on node @%d (defer) result %s\n", op_to_string(op->type), node->id, result_to_string(result));
+        spam("Run instruction %s on node %s (defer) result %s\n", op_to_string(op->type), node_name(node), result_to_string(result));
         return result;
     } else {
         error("INTERNAL: Cannot run deferred instructions on this node type\n");

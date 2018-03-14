@@ -108,6 +108,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                     tis->nodes[i]->type = TIS_NODE_TYPE_COMPUTE;
                     tis->nodes[i]->id = id++;
                     tis->nodes[i]->last = TIS_REGISTER_INVALID;
+                    tis->nodes[i]->name = strdup("COMPUTE");
                     break;
                 case 'M': // memory (assume stack memory)
                 case 'm':
@@ -115,17 +116,20 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 case 's':
                     tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_STACK;
                     tis->nodes[i]->index = 0;
+                    tis->nodes[i]->name = strdup("STACK");
                     break;
                 case 'R': // random access memory
                 case 'r':
                     tis->nodes[i]->type = TIS_NODE_TYPE_MEMORY_RAM;
                     tis->nodes[i]->index = 0;
+                    tis->nodes[i]->name = strdup("RAM");
                     error("Node type not yet implemented\n");
                     fclose(layout);
                     return INIT_FAIL;
                 case 'D': // damaged / disabled
                 case 'd':
                     tis->nodes[i]->type = TIS_NODE_TYPE_DAMAGED;
+                    tis->nodes[i]->name = strdup("DAMAGED");
                     break;
                 case EOF:
                     error("Unexpected EOF while reading node specifiers\n");
@@ -185,7 +189,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 } else {
                                     debug("Set I%zu to use file %.*s\n", index, BUFSIZE, buf);
                                     if((tis->inputs[index]->file.file = fopen(buf, "r")) == NULL) {
-                                        error("Unable to open %.*s for reading\n", BUFSIZE, buf); // TODO what to do about this? error out?
+                                        error("Unable to open %.*s for reading, will provide no data instead\n", BUFSIZE, buf);
                                     }
                                     register_file_handle(tis->inputs[index]->file.file);
                                 }
@@ -193,7 +197,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 goto skip_io_token;
                             }
                         } else {
-                            // TODO node type not implemented? internal error?
+                            // TODO io node type not implemented? internal error?
                             goto skip_io_token;
                         }
                         break;
@@ -222,7 +226,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                                 } else {
                                     debug("Set O%zu to use file %.*s\n", index, BUFSIZE, buf);
                                     if((tis->outputs[index]->file.file = fopen(buf, "a")) == NULL) {
-                                        error("Unable to open %.*s for writing\n", BUFSIZE, buf); // TODO what to do about this? error out?
+                                        error("Unable to open %.*s for writing, will silently drop data instead\n", BUFSIZE, buf);
                                     }
                                     register_file_handle(tis->outputs[index]->file.file);
                                 }
@@ -261,6 +265,7 @@ skip_io_token:
             tis->nodes[i]->col = i % tis->cols;
             tis->nodes[i]->writereg = TIS_REGISTER_INVALID;
             tis->nodes[i]->last = TIS_REGISTER_INVALID;
+            tis->nodes[i]->name = strdup("COMPUTE");
         }
         // set first input to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->inputs[0] = calloc(1, sizeof(tis_io_node_t));
@@ -455,7 +460,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->src.reg = TIS_REGISTER_LAST;
                 } else {
                     error("Invalid first argument \"%s\" on line %d of @%d", temp, line+1, id);
-                    node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // TODO Give separate err for BAK?
+                    node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
             if(nargs > 1) {
@@ -488,7 +493,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->dst.reg = TIS_REGISTER_LAST;
                 } else {
                     error("Invalid second argument \"%s\" on line %d of @%d", temp, line+1, id);
-                    node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // TODO Give separate err for BAK?
+                    node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
 
@@ -569,9 +574,17 @@ void print_usage(char* progname) {
     fprintf(stderr, "Usage:\n"
         "    %s [opts] <source>\n"
         "    %s [opts] <source> <layout>\n"
-        "    %s [opts] <source> <rows> <cols>\n",
+        "    %s [opts] <source> <rows> <cols>\n\n",
         progname, progname, progname);
-    // TODO flesh this out a bit
+    fprintf(stderr, "Options:\n"
+        "    -h      help; show this text\n"
+        "    -l      layout string; layout is given as a string\n"
+        "                instead of a file name\n"
+        "    -q      quiet; decrease verbosity by one level,\n"
+        "                may be provided multiple times\n"
+        "    -v      verbose; increase verbosity by one level,\n"
+        "                may be provided multiple times\n\n");
+    // TODO flesh this out a bit more
 }
 
 int main(int argc, char** argv) {

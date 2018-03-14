@@ -1,14 +1,13 @@
 #ifndef _TIS_TYPES_
 #define _TIS_TYPES_
 
-//#include <stddef.h>
 #include <stdlib.h>
 
 /*
  * Begin constants
  */
 
-#define TIS_NODE_LINE_COUNT 15
+#define TIS_NODE_LINE_COUNT 15 // TODO is this the correct capacity for stack nodes too?
 #define TIS_NODE_LINE_LENGTH 19 // TODO is this correct?
 
 /*
@@ -166,7 +165,7 @@ typedef struct tis_node {
     char* name; // optional (no equivalent in-game)
     union {
         tis_op_t* code[TIS_NODE_LINE_COUNT]; // up to 15 lines of code (used by compute)
-        int data[TIS_NODE_LINE_COUNT]; // up to 15 cells for data (used by memory) // TODO is this the correct capacity for stack nodes?
+        int data[TIS_NODE_LINE_COUNT]; // up to 15 cells for data (used by memory)
     };
     int acc; // (used by compute)
     int bak; // (used by compute)
@@ -278,9 +277,28 @@ extern tis_opt_t opts;
  * Begin inlines
  */
 
+/*
+ * Clamp value between -999 and 999
+ */
 static inline int clamp(int x) {
     int _x = (x);
     return _x > 999 ? 999 : _x < -999 ? -999 : _x;
+}
+
+/*
+ * Format node as string name; uses internal buffer, not necessarily safe for re-use
+ */
+static inline char* node_name(tis_node_t* node) {
+    static char buf[128] = "";
+    size_t ix = 0;
+    if(node->id >= 0) {
+        ix += snprintf(&buf[ix], 128-ix, "@%d", node->id);
+    }
+    if(node->name != NULL) {
+        ix += snprintf(&buf[ix], 128-ix, ix==0 ? "%s" : "|%s", node->name);
+    }
+    ix += snprintf(&buf[ix], 128-ix, ix==0 ? "(%zu,%zu)" : "|(%zu,%zu)", node->row, node->col);
+    return &buf[0];
 }
 
 #endif /* _TIS_TYPES_ */

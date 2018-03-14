@@ -43,19 +43,30 @@ tis_op_result_t output(tis_io_node_t* io, int value) {
     int out = EOF;
     switch(io->type) {
         case TIS_IO_TYPE_IOSTREAM_ASCII:
-            if((out = fputc(value, io->file.file)) == EOF) {
-                //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+            if(io->file.file != NULL) {
+                if((out = fputc(value, io->file.file)) == EOF) {
+                    error("An error occurred when writing value %d to file, silently dropping future values\n", value);
+                    io->file.file = NULL; // this file handle is still closeable by the normal method
+                }
+            } else {
+                spam("Output silently dropping value %d\n", value);
             }
             break;
         case TIS_IO_TYPE_IOSTREAM_NUMERIC:
-            if(io->file.sep >= 0) {
-                if(fprintf(io->file.file, "%d%c", value, io->file.sep) > 0) {
-                    //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
+            if(io->file.file != NULL) {
+                if(io->file.sep >= 0) {
+                    if(fprintf(io->file.file, "%d%c", value, io->file.sep) < 0) {
+                        error("An error occurred when writing value %d to file, silently dropping future values\n", value);
+                        io->file.file = NULL; // this file handle is still closeable by the normal method
+                    }
+                } else {
+                    if(fprintf(io->file.file, "%d", value) < 0) {
+                        error("An error occurred when writing value %d to file, silently dropping future values\n", value);
+                        io->file.file = NULL; // this file handle is still closeable by the normal method
+                    }
                 }
             } else {
-                if(fprintf(io->file.file, "%d", value) > 0) {
-                    //return TIS_OP_RESULT_WRITE_WAIT; // TODO what should I do here?
-                }
+                spam("Output silently dropping value %d\n", value);
             }
             break;
         case TIS_IO_TYPE_OSTREAM_IMAGE:

@@ -38,18 +38,18 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
         tis_node_state_t state = TIS_NODE_STATE_IDLE;
         if(node->index < TIS_NODE_LINE_COUNT) {
             // if capacity, try to read
-            spam("Stack node attempting to read to index %d\n", node->index); // TODO add node id to these messages (6 total)
+            spam("Stack node %s attempting to read to index %d\n", node_name(node), node->index);
             if(read_register(tis, node, TIS_REGISTER_ANY, &(node->data[node->index])) == TIS_OP_RESULT_OK) {
-                spam("Stack node read success to index %d\n", node->index);
+                spam("Stack node %s read success to index %d\n", node_name(node), node->index);
                 node->index++;
                 state = TIS_NODE_STATE_RUNNING;
             }
         }
         if(node->index > 0) {
-            spam("Stack node attempting to write from index %d\n", node->index-1);
+            spam("Stack node %s attempting to write from index %d\n", node_name(node), node->index-1);
             tis_op_result_t result = write_register(tis, node, TIS_REGISTER_ANY, node->data[node->index-1]);
             if(result == TIS_OP_RESULT_OK) {
-                spam("Stack node write immediate success from index %d\n", node->index-1);
+                spam("Stack node %s write immediate success from index %d\n", node_name(node), node->index-1);
                 node->index--;
                 state = TIS_NODE_STATE_RUNNING;
             } else {
@@ -83,10 +83,10 @@ tis_node_state_t run_defer(tis_t* tis, tis_node_t* node) {
             bork();
         }
     } else if(node->type == TIS_NODE_TYPE_MEMORY_STACK) {
-        spam("Stack node attempting to write (defer) from index %d\n", node->index-1);
+        spam("Stack node %s attempting to write (defer) from index %d\n", node_name(node), node->index-1);
         tis_op_result_t result = write_register_defer(tis, node, TIS_REGISTER_ANY);
         if(result == TIS_OP_RESULT_OK) {
-            spam("Stack node write deferred success from index %d\n", node->index-1);
+            spam("Stack node %s write deferred success from index %d\n", node_name(node), node->index-1);
             node->index--;
             return TIS_NODE_STATE_RUNNING;
         } else if(result == TIS_OP_RESULT_READ_WAIT) {
@@ -191,7 +191,7 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
  */
 tis_op_result_t write_port_register_maybe(tis_t* tis, tis_node_t* node, tis_register_t reg, int value) {
     node->writebuf = value;
-    // TODO if writing down from bottom row, write output instead, and return OK
+    // if writing down from bottom row, write output instead, and return OK
     if((reg == TIS_REGISTER_DOWN || reg == TIS_REGISTER_ANY) && node->row+1 == tis->rows) {
         spam("Write value %d to output index %zu\n", value, node->col);
         return output(tis->outputs[node->col], value);
@@ -211,13 +211,14 @@ tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, ti
 }
 
 tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int* value) {
-    spam("Attempting read from register %s on node @%d\n", reg_to_string(reg), node->id);
+    spam("Attempting read from register %s on node %s\n", reg_to_string(reg), node_name(node));
     switch(reg) {
         case TIS_REGISTER_ACC:
             *value = node->acc;
             return TIS_OP_RESULT_OK;
         case TIS_REGISTER_BAK:
-            // TODO cannot read from BAK
+            // cannot read from BAK
+            error("INTERNAL: Attempted to read from BAK on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
         case TIS_REGISTER_NIL:
             *value = 0;
@@ -232,19 +233,24 @@ tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, 
             return read_port_register_maybe(tis, node, node->last, value);
         case TIS_REGISTER_INVALID:
         default:
+            // internal error
+            error("INTERNAL: Attempted to read from INVALID on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
     }
-    return TIS_OP_RESULT_ERR; // Should not reach TODO error (also others, below)
+    // Should not reach
+    error("INTERNAL: switch out of sync with enum\n");
+    return TIS_OP_RESULT_ERR;
 }
 
 tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg, int value) {
-    spam("Attempting write to register %s on node @%d (value %d)\n", reg_to_string(reg), node->id, value);
+    spam("Attempting write to register %s on node %s (value %d)\n", reg_to_string(reg), node_name(node), value);
     switch(reg) {
         case TIS_REGISTER_ACC:
             node->acc = value;
             return TIS_OP_RESULT_OK;
         case TIS_REGISTER_BAK:
-            // TODO cannot write to BAK
+            // cannot write to BAK
+            error("INTERNAL: Attempted to write to BAK on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
         case TIS_REGISTER_NIL:
             // throwaway write
@@ -259,19 +265,23 @@ tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg,
             return write_port_register_maybe(tis, node, node->last, value);
         case TIS_REGISTER_INVALID:
         default:
-            // TODO internal error
+            // internal error
+            error("INTERNAL: Attempted to write to INVALID on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
     }
-    return TIS_OP_RESULT_ERR; // Should not reach
+    // Should not reach
+    error("INTERNAL: switch out of sync with enum\n");
+    return TIS_OP_RESULT_ERR;
 }
 
 tis_op_result_t write_register_defer(tis_t* tis, tis_node_t* node, tis_register_t reg) {
-    spam("Attempting write to register %s on node @%d (defer)\n", reg_to_string(reg), node->id);
+    spam("Attempting write to register %s on node %s (defer)\n", reg_to_string(reg), node_name(node));
     switch(reg) {
         case TIS_REGISTER_ACC:
         case TIS_REGISTER_BAK:
         case TIS_REGISTER_NIL:
-            // TODO internal error
+            // internal error
+            error("INTERNAL: Attempted to write (defer) to ACC, NIL, or BAK on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
         case TIS_REGISTER_UP:
         case TIS_REGISTER_DOWN:
@@ -283,8 +293,11 @@ tis_op_result_t write_register_defer(tis_t* tis, tis_node_t* node, tis_register_
             return write_port_register_defer_maybe(tis, node, node->last);
         case TIS_REGISTER_INVALID:
         default:
-            // TODO internal error
+            // internal error
+            error("INTERNAL: Attempted to write (defer) to INVALID on node %s\n", node_name(node));
             return TIS_OP_RESULT_ERR;
     }
-    return TIS_OP_RESULT_ERR; // Should not reach
+    // Should not reach
+    error("INTERNAL: switch out of sync with enum\n");
+    return TIS_OP_RESULT_ERR;
 }
