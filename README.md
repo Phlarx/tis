@@ -81,7 +81,7 @@ A total of rows*columns characters are then read, skipping whitespace (this is t
 - `C` - compute node; T21 Basic Execution Node
 - `M` or `S` - stack node; T30 Stack Memory Node
 - `R` - ram node; T31 Random Access Memory Node (Not yet implemented)
-- `D` - damaged/disabled node; (Not yet implemented)
+- `D` - damaged/disabled node
 
 A sample layout may be:
 ```text
@@ -128,3 +128,23 @@ tis code.tisasm -l "2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -
 ## TIS Input/Output
 
 (describe the various options for IO, both original and new)
+
+Input:
+- `ASCII`
+  1. `STDIN`, `-`, or filename
+- `NUMERIC`
+  1. `STDIN`, `-`, or filename
+- `LIST` (Not yet implemented)
+- `CYCLIC` (Not yet implemented)
+- `RANDOM` (Not yet implemented)
+- `ALGEBRAIC` (Not yet implemented)
+- `GEOMETRIC` (Not yet implemented)
+- `HARMONIC` (Not yet implemented)
+
+Output:
+- `ASCII`
+  1. `STDIN`, `-`, or filename
+- `NUMERIC`
+  1. `STDIN`, `-`, or filename
+  2. (optional) Separator, as code point
+- `IMAGE` (Not yet implemented)
