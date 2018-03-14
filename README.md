@@ -22,7 +22,7 @@ https://alandesmet.github.io/TIS-100-Hackers-Guide/
 ## TIS Assembly Language
 
 ### The official manual
-The official TIS-100 manual is available from the Zachtronics website here: http://www.zachtronics.com/images/TIS-100P%20Reference%20Manual.pdf
+[The official TIS-100 manual is available from the Zachtronics website.](http://www.zachtronics.com/images/TIS-100P%20Reference%20Manual.pdf)
 If you are new to TIS, this is the best place to start whether you intend to play the game, or use this emulator.
 
 ### Differences, deviations, addendums and errata
@@ -57,15 +57,19 @@ The default configuration of a TIS is 3 rows of 4 nodes each. All twelve nodes w
 A simple ASCII input from stdin will be made available to the upper-left node, and a simple ASCII output will be made available to the lower-right node.
 The configurations encountered in the game differ only slightly to this; exhibiting different node types and input/output style and indexes.
 
-Assuming the TIS assembly code is in 'code.tisasm', this is the simplest method of running the emulator:
-    $ tis code.tisasm
+Assuming the TIS assembly code is in a file called 'code.tisasm', this is the simplest method of running the emulator:
+```shell
+tis code.tisasm
+```
 
 ### Changing the size of the default layout
 If two numbers are provided on the command line, the configuration will be initialized to a different size that corresponds to the given rows and columns.
 All other aspects will remain default; all nodes will be compute nodes, and the upper-left input and lower-right output willl remain.
 
 Using these rows and columns arguments might look like this, for two rows and 5 columns:
-    $ tis code.tisasm 2 5
+```shell
+tis code.tisasm 2 5
+```
 
 ### Defining a custom layout
 For maximum control, use a layout file or string. A file is recommended, but the layout may be provided as a quoted string instead with the -l flag.
@@ -74,42 +78,52 @@ The first three elements of a layout file are required, and all elements in a la
 
 The first two elements are the rows and columns of the layout. The third element is a map describing what type each node is.
 A total of rows*columns characters are then read, skipping whitespace (this is the exception to the whitespace-delimiter rule). The valid node types are (case insensitive):
-- C - compute node; T21 Basic Execution Node
-- M or S - stack node; T30 Stack Memory Node (Not yet implemented)
-- R - ram node; T31 Random Access Memory Node (Not yet implemented)
-- D - damaged/disabled node; (Not yet implemented)
+- `C` - compute node; T21 Basic Execution Node
+- `M` or `S` - stack node; T30 Stack Memory Node
+- `R` - ram node; T31 Random Access Memory Node (Not yet implemented)
+- `D` - damaged/disabled node; (Not yet implemented)
 
 A sample layout may be:
-    5 4
-    CCSD
-    CCCC
-    CCCC
-    CCCC
-    CSCC
+```text
+5 4
+CCSD
+CCCC
+CCCC
+CCCC
+CSCC
+```
 Which is 5 rows and 4 columns with two stack nodes and one disabled node listed.
 
-Following the layout details are (optional) definitions of the various input and output pseudo-nodes. Input nodes start with the token I<n> where n is the index. I0 is the first column, I3 is the fourth, etc.
-Output pseudo-nodes are similar, but start with the token O<n> instead. If one of these tokens is encountered, it is assumed that the previous definition is complete. These definitions need not be in any specific order,
+Following the layout details are (optional) definitions of the various input and output pseudo-nodes. Input nodes start with the token `I<n>` where n is the index. `I0` is the first column, `I3` is the fourth, etc.
+Output pseudo-nodes are similar, but start with the token `O<n>` instead. If one of these tokens is encountered, it is assumed that the previous definition is complete. These definitions need not be in any specific order,
 and if there are conflicts, the later definitions will override the earlier ones. Be warned: this may leak memory or file handles if not used with care.
 
 A sample layout, including some input/output definitions may look like this:
-    2 3
-    CCS
-    CCC
-    I0 NUMERIC numbers.txt
-    O0 NUMERIC - 32
-    O2 ASCII -
+```text
+2 3
+CCS
+CCC
+I0 NUMERIC numbers.txt
+O0 NUMERIC - 32
+O2 ASCII -
+```
 
 The details for each type of input and output pseudo node are described below, in the TIS Input/Output section.
 
 Assuming that the file 'layout.tiscfg' contains the above configuration, the command line might look something like this:
-    $ tis code.tisasm layout.tiscfg
+```shell
+tis code.tisasm layout.tiscfg
+```
 
 Since whitespace is the delimiter, this layout produces the same result:
-    2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -
+```text
+2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -
+```
 
-It is less readable, but more suitable for using as a string on the command line with the -l flag. Note the quotes around the layout string.
-    $ tis code.tisasm -l "2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -"
+It is less readable, but more suitable for using as a string on the command line with the `-l` flag. Note the quotes around the layout string.
+```shell
+tis code.tisasm -l "2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -"
+```
 
 ## TIS Input/Output
 
