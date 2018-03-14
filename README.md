@@ -143,8 +143,8 @@ Input:
 
 Output:
 - `ASCII`
-  1. `STDIN`, `-`, or filename
+  1. `STDOUT`, `STDERR`, `-`, or filename
 - `NUMERIC`
-  1. `STDIN`, `-`, or filename
+  1. `STDOUT`, `STDERR`, `-`, or filename
   2. (optional) Separator, as code point
 - `IMAGE` (Not yet implemented)
