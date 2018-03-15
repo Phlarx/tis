@@ -1,9 +1,9 @@
-# TIS-100
-A TIS-100 emulator, for the wonderful Zachtronics game of the same name. Uses TIS-100 save file format for code; the layout/specification is a proprietary format.
+# TIS
+A Tesselated Intelligence System emulator, for the [wonderful Zachtronics game, TIS-100](http://www.zachtronics.com/tis-100/). Uses TIS-100 save file format for code; the layout/specification is a proprietary format.
 
 None of the other emulators available did quite what I wanted, so I'm going to try my hand at making my own.
 
-My goals with this emulator are not to re-implement the game, but to mold this design into something more like a niche, but usable programming language.
+My goals with this emulator are not to re-implement the game, but to mold this design into something more like a niche-but-usable programming language.
 There is no verification of outputs against a predefined list; that is the duty of the programmer.
 The variety of input and output styles will be expanded from the simple number lists and graphical display of the game, including ASCII input and output.
 The layout and arrangement of nodes will be modifiable, and (in the long term) more node types will be added, such as a RAM node.
@@ -64,7 +64,7 @@ tis code.tisasm
 
 ### Changing the size of the default layout
 If two numbers are provided on the command line, the configuration will be initialized to a different size that corresponds to the given rows and columns.
-All other aspects will remain default; all nodes will be compute nodes, and the upper-left input and lower-right output willl remain.
+All other aspects will remain default; all nodes will be compute nodes, and the upper-left input and lower-right output will remain.
 
 Using these rows and columns arguments might look like this, for two rows and 5 columns:
 ```shell

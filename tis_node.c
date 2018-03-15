@@ -230,6 +230,10 @@ tis_op_result_t read_register(tis_t* tis, tis_node_t* node, tis_register_t reg, 
         case TIS_REGISTER_ANY:
             return read_port_register_maybe(tis, node, reg, value);
         case TIS_REGISTER_LAST:
+            if(node->last == TIS_REGISTER_INVALID) {
+                error("Attempted to reference LAST before ANY on node %s\n", node_name(node));
+                return TIS_OP_RESULT_ERR;
+            }
             return read_port_register_maybe(tis, node, node->last, value);
         case TIS_REGISTER_INVALID:
         default:
@@ -262,6 +266,10 @@ tis_op_result_t write_register(tis_t* tis, tis_node_t* node, tis_register_t reg,
         case TIS_REGISTER_ANY:
             return write_port_register_maybe(tis, node, reg, value);
         case TIS_REGISTER_LAST:
+            if(node->last == TIS_REGISTER_INVALID) {
+                error("Attempted to reference LAST before ANY on node %s\n", node_name(node));
+                return TIS_OP_RESULT_ERR;
+            }
             return write_port_register_maybe(tis, node, node->last, value);
         case TIS_REGISTER_INVALID:
         default:
@@ -290,6 +298,10 @@ tis_op_result_t write_register_defer(tis_t* tis, tis_node_t* node, tis_register_
         case TIS_REGISTER_ANY:
             return write_port_register_defer_maybe(tis, node, reg);
         case TIS_REGISTER_LAST:
+            if(node->last == TIS_REGISTER_INVALID) {
+                error("INTERNAL: Attempted to reference LAST before ANY on node %s (this should already have been caught)\n", node_name(node));
+                return TIS_OP_RESULT_ERR;
+            }
             return write_port_register_defer_maybe(tis, node, node->last);
         case TIS_REGISTER_INVALID:
         default:

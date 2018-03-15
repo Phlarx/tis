@@ -11,7 +11,10 @@
 #define INIT_OK 0
 #define INIT_FAIL 1
 
-#define BUFSIZE 100
+#define BUFSIZE 128
+
+#define STR(x) _STR(x)
+#define _STR(x) #x
 
 tis_t tis = {0};
 tis_opt_t opts = {0};
@@ -166,7 +169,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 }
                 mode = 1;
                 tis->outputs[index] = calloc(1, sizeof(tis_io_node_t));
-            } else if(fscanf(layout, " %100s ", buf) == 1) { // NOTE: I don't see an easy way to make this 100 rely on BUFSIZE
+            } else if(fscanf(layout, " %"STR(BUFSIZE)"s ", buf) == 1) { // The format string is " %128s ", but changes with BUFSIZE
                 switch(mode) {
                     case 0:
                         if(tis->inputs[index]->type == TIS_IO_TYPE_INVALID) {
@@ -298,8 +301,12 @@ int init_nodes(tis_t* tis, char* sourcefile) {
     while(fgets(buf, BUFSIZE, source) != NULL) {
         char* nl = strchr(buf, '\n');
         if(nl == NULL) {
-            error("Line too long:\n");
-            error("    %.*s\n", BUFSIZE, buf);
+            if(!feof(source)) {
+                error("Line too long, unexpected things may occur:\n");
+                error("    %.*s\n", BUFSIZE, buf);
+            } else {
+                // this is fine and normal
+            }
         } else {
             *nl = '\0';
         }
