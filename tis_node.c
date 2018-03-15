@@ -148,6 +148,9 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
             return TIS_OP_RESULT_READ_WAIT;
         }
         *value = neigh->writebuf;
+        if(neigh->writereg == TIS_REGISTER_ANY) {
+            neigh->last = TIS_REGISTER_DOWN;
+        }
         neigh->writereg = TIS_REGISTER_NIL;
     } else if(reg == TIS_REGISTER_DOWN) {
         if(node->row+1 == tis->rows) { // can never read from an output
@@ -158,6 +161,9 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
             return TIS_OP_RESULT_READ_WAIT;
         }
         *value = neigh->writebuf;
+        if(neigh->writereg == TIS_REGISTER_ANY) {
+            neigh->last = TIS_REGISTER_UP;
+        }
         neigh->writereg = TIS_REGISTER_NIL;
     } else if(reg == TIS_REGISTER_LEFT) {
         if(node->col == 0) {
@@ -168,6 +174,9 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
             return TIS_OP_RESULT_READ_WAIT;
         }
         *value = neigh->writebuf;
+        if(neigh->writereg == TIS_REGISTER_ANY) {
+            neigh->last = TIS_REGISTER_RIGHT;
+        }
         neigh->writereg = TIS_REGISTER_NIL;
     } else if(reg == TIS_REGISTER_RIGHT) {
         if(node->col+1 == tis->cols) {
@@ -178,6 +187,9 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
             return TIS_OP_RESULT_READ_WAIT;
         }
         *value = neigh->writebuf;
+        if(neigh->writereg == TIS_REGISTER_ANY) {
+            neigh->last = TIS_REGISTER_LEFT;
+        }
         neigh->writereg = TIS_REGISTER_NIL;
     }
     return TIS_OP_RESULT_OK;

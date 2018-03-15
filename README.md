@@ -8,14 +8,13 @@ There is no verification of outputs against a predefined list; that is the duty 
 The variety of input and output styles will be expanded from the simple number lists and graphical display of the game, including ASCII input and output.
 The layout and arrangement of nodes will be modifiable, and (in the long term) more node types will be added, such as a RAM node.
 
-This is all very WIP, so a bunch of things aren't implemented. However, the instruction set should be functional
-and complete. Also no real documentation yet, sorry. It's on my short list. Draft below.
+This is all very WIP, so some things aren't implemented or may change. However, the instruction set and basic node types should be functional
+and complete. Also only very limited documentation so far, sorry. It's on my short list. Draft below.
 
 ===
 
 (useful links for dev'ment:)
-http://www.zachtronics.com/images/TIS-100P%20Reference%20Manual.pdf
-https://alandesmet.github.io/TIS-100-Hackers-Guide/
+- https://alandesmet.github.io/TIS-100-Hackers-Guide/
 
 ===
 
@@ -27,11 +26,18 @@ If you are new to TIS, this is the best place to start whether you intend to pla
 
 ### Differences, deviations, addendums and errata
 (additional details, especially where this deviates from the maunal, and details on how the save file works)
-Deviations between the manual and this emulator include:
-- HCF still exits the system immediately, but the emulator attempts a clean exit.
+Deviations between the game/manual and this emulator include:
+- `HCF` still exits the system immediately, but the emulator attempts a clean exit.
+- Whereas the game stops after N outputs, this emulator may run forever. It will terminate upon an `HCF`, as described above, or if the system is deemed quiescent.
+  The system is inactive if all nodes are either IDLE, meaning that they contain no instructions, or in a WAIT state. The system is quiescent if it is inactive in the same manner for two cycles in a row.
+  Note that a node running the instruction `JRO -1` can never be WAIT or IDLE, and therefore will prevent automatic termination.
 
 One thing to be aware of is that, like the game, compute nodes are numbered left to right, top to bottom, indexed from zero to n-1, where n is the number of compute nodes. Not all nodes must be present.
-When counting, nodes other than compute nodes are skipped. 
+When counting, nodes other than compute nodes are skipped.
+
+### File format
+
+(describe file format, allowances, limits, errors, etc.)
 
 ## TIS Configuration
 
@@ -128,6 +134,9 @@ tis code.tisasm -l "2 3 CCSCCC I0 NUMERIC numbers.txt O0 NUMERIC - 32 O2 ASCII -
 ## TIS Input/Output
 
 (describe the various options for IO, both original and new)
+
+The general format for an input/output definition is `<id> <type> <arguments...>`. The id is `I<n>` or `O<n>`, and n is the index.
+The type is one of the top-level list items below. The arguments, if any, are described by the sub-lists under each item.
 
 Input:
 - `ASCII`
