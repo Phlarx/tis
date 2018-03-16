@@ -25,19 +25,39 @@ and complete. Also only very limited documentation so far, sorry. It's on my sho
 If you are new to TIS, this is the best place to start whether you intend to play the game, or use this emulator.
 
 ### Differences, deviations, addendums and errata
-(additional details, especially where this deviates from the maunal, and details on how the save file works)
-Deviations between the game/manual and this emulator include:
-- `HCF` still exits the system immediately, but the emulator attempts a clean exit.
-- Whereas the game stops after N outputs, this emulator may run forever. It will terminate upon an `HCF`, as described above, or if the system is deemed quiescent.
-  The system is inactive if all nodes are either IDLE, meaning that they contain no instructions, or in a WAIT state. The system is quiescent if it is inactive in the same manner for two cycles in a row.
-  Note that a node running the instruction `JRO -1` can never be WAIT or IDLE, and therefore will prevent automatic termination.
+While most of the instructions understood by TIS are documented in the manual, there is one additional undocumented instruction: `HCF`.
+When a TIS node executes this instruction, which takes no arguments, the entire TIS system will immediately shut down.
+This is a useful command when a swift exit is desired, instead of waiting for other processing to complete.
 
-One thing to be aware of is that, like the game, compute nodes are numbered left to right, top to bottom, indexed from zero to n-1, where n is the number of compute nodes. Not all nodes must be present.
-When counting, nodes other than compute nodes are skipped.
+A key difference between the game and this emulator is in regards to the termination condition. Whereas the game stops after N outputs, according to the puzzle specification, this emulator may run forever.
+It will terminate upon an `HCF`, as described above, or if the system is deemed quiescent.
+The system is inactive if all nodes are either IDLE, meaning that they contain no instructions, or in a WAIT state. The system is quiescent if it is inactive in the same manner for two cycles in a row.
+Note that a node running the instruction `JRO -1` can never be WAIT or IDLE, and therefore will prevent automatic termination.
 
 ### File format
-
 (describe file format, allowances, limits, errors, etc.)
+
+TIS assembly code is stored in a flat file, with indexes specifying which node should run each section of code.
+Nodes are indexed left-to-right, top-to-bottom starting at zero. Nodes that are not compute nodes are skipped, they do not correspond to an index.
+The contents of one such file may look like this:
+```text
+@0
+ADD 10
+
+@1
+SWP
+SAV
+
+@3
+# Comment
+
+@4
+MOV 123 ACC
+
+```
+
+In this example, the node zero (usually, but not always, the top left node) will execute the instruction `ADD 10` forever. Node one will `SWP` and `SAV`.
+Nodes two and three will contain no code, and will be considered IDLE. Node 4 will `MOV 123 ACC`. If there are additional nodes, they will have no code, like nodes 2 and 3.
 
 ## TIS Configuration
 

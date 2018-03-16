@@ -7,8 +7,9 @@
  * Begin constants
  */
 
-#define TIS_NODE_LINE_COUNT 15 // TODO is this the correct capacity for stack nodes too?
+#define TIS_NODE_LINE_COUNT 15
 #define TIS_NODE_LINE_LENGTH 19 // TODO is this correct?
+#define TIS_MEM_CELL_COUNT 15 // TODO is this the correct capacity for stack nodes?
 
 /*
  * Begin enums
@@ -165,7 +166,7 @@ typedef struct tis_node {
     char* name; // optional (no equivalent in-game)
     union {
         tis_op_t* code[TIS_NODE_LINE_COUNT]; // up to 15 lines of code (used by compute)
-        int data[TIS_NODE_LINE_COUNT]; // up to 15 cells for data (used by memory)
+        int data[TIS_MEM_CELL_COUNT]; // up to 15 cells for data (used by memory)
     };
     int acc; // (used by compute)
     int bak; // (used by compute)
