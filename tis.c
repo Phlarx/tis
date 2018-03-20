@@ -272,12 +272,13 @@ skip_io_token:
         }
         // set first input to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->inputs[0] = calloc(1, sizeof(tis_io_node_t));
-        tis->inputs[0]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
+        tis->inputs[0]->type = opts.default_i_type;
         tis->inputs[0]->file.file = stdin;
         // set last output to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->outputs[tis->cols - 1] = calloc(1, sizeof(tis_io_node_t));
-        tis->outputs[tis->cols - 1]->type = TIS_IO_TYPE_IOSTREAM_ASCII;
+        tis->outputs[tis->cols - 1]->type = opts.default_o_type;
         tis->outputs[tis->cols - 1]->file.file = stdout;
+        tis->outputs[tis->cols - 1]->file.sep = '\n';
     }
 
     return INIT_OK;
@@ -587,6 +588,9 @@ void print_usage(char* progname) {
         "    -h      help; show this text\n"
         "    -l      layout string; layout is given as a string\n"
         "                instead of a file name\n"
+        "    -n      numeric; change the default layout to use\n"
+        "                numeric io instead of ascii, only\n"
+        "                relevant when not using a custom layout\n"
         "    -q      quiet; decrease verbosity by one level,\n"
         "                may be provided multiple times\n"
         "    -v      verbose; increase verbosity by one level,\n"
@@ -606,6 +610,10 @@ int main(int argc, char** argv) {
     int timelimit = 0;
     int layoutmode = 0;
 
+    opts.verbose = 0;
+    opts.default_i_type = TIS_IO_TYPE_IOSTREAM_ASCII;
+    opts.default_o_type = TIS_IO_TYPE_IOSTREAM_ASCII;
+
     for(int i = 1; i < argc; i++) {
         if(argv[i][0] == '-') {
             if(argv[i][1] == '-') {
@@ -620,6 +628,10 @@ int main(int argc, char** argv) {
                             exit(EXIT_SUCCESS);
                         case 'l': // layoutmode toggle
                             layoutmode = 1;
+                            break;
+                        case 'n': // numeric default io
+                            opts.default_i_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
+                            opts.default_o_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
                             break;
                         case 'q': // quiet
                             opts.verbose--;

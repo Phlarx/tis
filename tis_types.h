@@ -206,6 +206,8 @@ typedef struct tis {
 
 typedef struct tis_opt {
     int verbose;
+    tis_io_type_t default_i_type; // if using a default layout, use this type for input
+    tis_io_type_t default_o_type; // if using a default layout, use this type for output
 } tis_opt_t;
 extern tis_opt_t opts;
 
