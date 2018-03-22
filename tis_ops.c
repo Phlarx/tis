@@ -60,7 +60,7 @@ jump_label:
                 break;
             case TIS_OP_TYPE_JRO:
                 if(op->src.type == TIS_OP_ARG_TYPE_CONSTANT) {
-                    node->index = (node->index + op->src.con) % TIS_NODE_LINE_COUNT;
+                    node->index = (node->index + op->src.con - 1) % TIS_NODE_LINE_COUNT;
                 } else if(op->src.type == TIS_OP_ARG_TYPE_REGISTER) {
                     result = read_register(tis, node, op->src.reg, &value);
                     if(result == TIS_OP_RESULT_OK) {

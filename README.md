@@ -32,7 +32,7 @@ This is a useful command when a swift exit is desired, instead of waiting for ot
 A key difference between the game and this emulator is in regards to the termination condition. Whereas the game stops after N outputs, according to the puzzle specification, this emulator may run forever.
 It will terminate upon an `HCF`, as described above, or if the system is deemed quiescent.
 The system is inactive if all nodes are either IDLE, meaning that they contain no instructions, or in a WAIT state. The system is quiescent if it is inactive in the same manner for two cycles in a row.
-Note that a node running the instruction `JRO -1` can never be WAIT or IDLE, and therefore will prevent automatic termination.
+Note that a node running the instruction `JRO 0` can never be WAIT or IDLE, and therefore will prevent automatic termination.
 
 ### File format
 (describe file format, allowances, limits, errors, etc.)
