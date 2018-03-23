@@ -52,10 +52,14 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
     FILE* layout = NULL;
     if(layoutfile != NULL) {
         if(layoutmode == 0) { // default mode: layoutfile is a filename
-            layout = fopen(layoutfile, "r");
-            if(layout == NULL) {
-                error("Unable to open layout file '%s' for reading\n", layoutfile);
-                return INIT_FAIL;
+            if(strcasecmp(layoutfile, "-") == 0) {
+                layout = stdin;
+            } else {
+                layout = fopen(layoutfile, "r");
+                if(layout == NULL) {
+                    error("Unable to open layout file '%s' for reading\n", layoutfile);
+                    return INIT_FAIL;
+                }
             }
         } else { // alternate mode: layoutfile is a string representing the file contents
             layout = fmemopen(layoutfile, strlen(layoutfile), "r");
@@ -257,7 +261,9 @@ skip_io_token:
             }
         }
 
-        fclose(layout);
+        if(layout != stdin) {
+            fclose(layout);
+        }
     } else {
         // init default node & io node layout for dimensions
         // set all nodes to TIS_NODE_TYPE_COMPUTE
@@ -290,10 +296,15 @@ skip_io_token:
  * Other nodes types need not be touched here.
  */
 int init_nodes(tis_t* tis, char* sourcefile) {
-    FILE* source = fopen(sourcefile, "r");
-    if(source == NULL) {
-        error("Unable to open source file '%s' for reading\n", sourcefile);
-        return INIT_FAIL;
+    FILE* source = NULL;
+    if(strcasecmp(sourcefile, "-") == 0) {
+        source = stdin;
+    } else {
+        source = fopen(sourcefile, "r");
+        if(source == NULL) {
+            error("Unable to open source file '%s' for reading\n", sourcefile);
+            return INIT_FAIL;
+        }
     }
 
     char buf[BUFSIZE];
@@ -523,7 +534,9 @@ int init_nodes(tis_t* tis, char* sourcefile) {
         line++;
     }
 
-    fclose(source);
+    if(source != stdin) {
+        fclose(source);
+    }
     return INIT_OK;
 }
 
