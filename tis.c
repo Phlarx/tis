@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include "tis_types.h"
 #include "tis_node.h"
@@ -585,6 +586,8 @@ void print_usage(char* progname) {
         "    %s [opts] <source> <rows> <cols>\n\n",
         progname, progname, progname);
     fprintf(stderr, "Options:\n"
+        "    -c      cycle limit; prevent the emulator from running\n"
+        "                for more than this many cycles\n"
         "    -h      help; show this text\n"
         "    -l      layout string; layout is given as a string\n"
         "                instead of a file name\n"
@@ -614,48 +617,58 @@ int main(int argc, char** argv) {
     opts.default_i_type = TIS_IO_TYPE_IOSTREAM_ASCII;
     opts.default_o_type = TIS_IO_TYPE_IOSTREAM_ASCII;
 
-    for(int i = 1; i < argc; i++) {
-        if(argv[i][0] == '-') {
-            if(argv[i][1] == '-') {
-                // parse long opts
-                warn("Skipping unrecognized long opt '%s'\n", argv[i]);
-            } else {
-                for(int j = 1; argv[i][j] != '\0'; j++) {
-                    // parse short opts
-                    switch(argv[i][j]) {
-                        case 'h': // help
-                            print_usage(argv[0]);
-                            exit(EXIT_SUCCESS);
-                        case 'l': // layoutmode toggle
-                            layoutmode = 1;
-                            break;
-                        case 'n': // numeric default io
-                            opts.default_i_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
-                            opts.default_o_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
-                            break;
-                        case 'q': // quiet
-                            opts.verbose--;
-                            break;
-                        case 'v': // verbose
-                            opts.verbose++;
-                            break;
-                        default:
-                            warn("Skipping unrecognized short opt '-%c'\n", argv[i][j]);
-                            break;
-                   }
+    int c;
+    while((c = getopt(argc, argv, "-c:hlnqv")) != -1) {
+        // parse short opts
+        switch(c) {
+            case 'c': // cycle count limit
+                timelimit = atoi(optarg); // TODO ensure that there is nothing else in this arg
+                break;
+            case 'h': // help
+            case '?': // (this is also used for an unrecognized opt)
+                print_usage(argv[0]);
+                exit(EXIT_SUCCESS);
+            case 'l': // layoutmode toggle
+                layoutmode = 1;
+                break;
+            case 'n': // numeric default io
+                opts.default_i_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
+                opts.default_o_type = TIS_IO_TYPE_IOSTREAM_NUMERIC;
+                break;
+            case 'q': // quiet
+                opts.verbose--;
+                break;
+            case 'v': // verbose
+                opts.verbose++;
+                break;
+            case 1: // positional arg
+                if(argcount >= MAXARGS) {
+                    error("Too many arguments!\n");
+                    print_usage(argv[0]);
+                    exit(EXIT_FAILURE);
+                } else {
+                    argvector[argcount] = optarg;
+                    argcount++;
                 }
-            }
-        } else if(argcount >= MAXARGS) {
+                break;
+            default:
+                error("Skipping unimplemented short opt '-%c'\n", c);
+                break;
+        }
+    }
+
+    for(; optind < argc; optind++) {
+        if(argcount >= MAXARGS) {
             error("Too many arguments!\n");
             print_usage(argv[0]);
             exit(EXIT_FAILURE);
         } else {
-            argvector[argcount] = argv[i];
+            argvector[argcount] = argv[optind];
             argcount++;
         }
     }
 
-    switch(argcount) {
+    switch(argcount) { // do different things based on how many args are provided
         case 1:
             sourcefile = argvector[0];
             tis.rows = 3;
@@ -672,9 +685,14 @@ int main(int argc, char** argv) {
             tis.cols = atoi(argvector[2]); // TODO ensure that there is nothing else in this arg
             debug("Read dimensions %zur %zuc from command line\n", tis.rows, tis.cols);
             break;
-        default:
+        case 0:
+            error("Too few arguments!\n");
             print_usage(argv[0]);
-            exit(EXIT_SUCCESS);
+            exit(EXIT_FAILURE);
+        default:
+            error("Too many arguments!\n");
+            print_usage(argv[0]);
+            exit(EXIT_FAILURE);
     }
 
     if(init_layout(&tis, layoutfile, layoutmode) != INIT_OK) {
