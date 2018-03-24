@@ -34,7 +34,7 @@ tis_node_state_t run(tis_t* tis, tis_node_t* node) {
             bork();
         }
     } else if(node->type == TIS_NODE_TYPE_MEMORY_STACK) {
-        // TODO experiment: can a stack node handle simultaneous read and write? What does this do, even? Should read or write be first?
+        // TODO experiment: can a stack node handle simultaneous read and write? What does this do, even? Should read or write be first? -> can multi-write, in node order; cannot multi-read (one per tick); read+write will read previous value (if present) *before* the write.
         tis_node_state_t state = TIS_NODE_STATE_IDLE;
         if(node->index < TIS_NODE_LINE_COUNT) {
             // if capacity, try to read
@@ -141,7 +141,7 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
         return TIS_OP_RESULT_READ_WAIT;
     } else if(reg == TIS_REGISTER_UP) {
         if(node->row == 0) { // if reading up from top row, read input instead
-            return input(tis->inputs[node->col], value); // TODO experiment: can io read happen every tick, or only every other?
+            return input(tis->inputs[node->col], value); // TODO experiment: can io read happen every tick, or only every other? -> read is every other, starting with a prep cycle
         }
         tis_node_t* neigh = tis->nodes[(node->row-1)*tis->cols + node->col];
         if(neigh == NULL || !(neigh->writereg == TIS_REGISTER_DOWN || neigh->writereg == TIS_REGISTER_ANY)) {
@@ -208,8 +208,8 @@ tis_op_result_t write_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regi
         spam("Write value %d to output index %zu\n", value, node->col);
         return output(tis->outputs[node->col], value);
     }
-    // TODO experiment: does writing to output claim 1 or 2 ticks? (move to other claims 2)
-    // TODO experiment: does writing to ANY favor outputs or other nodes?
+    // TODO experiment: does writing to output claim 1 or 2 ticks? (move to other claims 2) -> it's 2
+    // TODO experiment: does writing to ANY favor outputs or other nodes? -> no, it acts like another row of nodes below
     return TIS_OP_RESULT_WRITE_WAIT;
 }
 tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, tis_register_t reg) {

@@ -8,8 +8,8 @@
  */
 
 #define TIS_NODE_LINE_COUNT 15
-#define TIS_NODE_LINE_LENGTH 19 // TODO is this correct?
-#define TIS_MEM_CELL_COUNT 15 // TODO is this the correct capacity for stack nodes?
+#define TIS_NODE_LINE_LENGTH 18
+#define TIS_MEM_CELL_COUNT 15
 
 /*
  * Begin enums

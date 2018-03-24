@@ -115,7 +115,7 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 case 'c':
                     tis->nodes[i]->type = TIS_NODE_TYPE_COMPUTE;
                     tis->nodes[i]->id = id++;
-                    tis->nodes[i]->last = TIS_REGISTER_INVALID;
+                    tis->nodes[i]->last = TIS_REGISTER_NIL; // LAST behaves like NIL until an ANY occurs
                     tis->nodes[i]->name = strdup("COMPUTE");
                     break;
                 case 'M': // memory (assume stack memory)
@@ -274,7 +274,7 @@ skip_io_token:
             tis->nodes[i]->row = i / tis->cols;
             tis->nodes[i]->col = i % tis->cols;
             tis->nodes[i]->writereg = TIS_REGISTER_INVALID;
-            tis->nodes[i]->last = TIS_REGISTER_INVALID;
+            tis->nodes[i]->last = TIS_REGISTER_NIL; // LAST behaves like NIL until an ANY occurs
             tis->nodes[i]->name = strdup("COMPUTE");
         }
         // set first input to TIS_IO_TYPE_IOSTREAM_NUMERIC
@@ -328,11 +328,10 @@ int init_nodes(tis_t* tis, char* sourcefile) {
 
         if(buf[0] == '\0') {
             // empty line; ignore
-            // (enforce empty line before new node?)
-            // TODO experiment: what does the game do in this case?
-        } else if(sscanf(buf, "@%d", &id) == 1) { // TODO check for extra data on this line (experiment: what does the game do with this?)
+            // (when game writes saves, it adds them at end of node, but doesn't require them to parse)
+        } else if(sscanf(buf, "@%d", &id) == 1) { // TODO check for extra data on this line (experiment: what does the game do with this?) -> it treats it as unparseable and ignores the whole line
             if(id < preid) {
-                // TODO experiment: what does the game do in this case?
+                // the game handles reorderings silently
                 warn("Nodes appear out of order, @%d is after @%d. Continuing anyway.\n", id, preid);
             }
             preid = id;
@@ -345,10 +344,11 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 }
             }
             if(node == NULL) {
-                // TODO experiment: what does the game do in this case?
+                // the game just adds the code to the last node, we ignore it instead
                 warn("@%d is out-of-bounds for the current layout. Contents will be ignored.\n", id);
             } else if(node->code[0] != NULL) {
-                // TODO experiment: what does the game do in this case?
+                // TODO experiment: what does the game do in this case? -> comment below, change code to match
+                // the game replaces the previous node contents
                 warn("@%d has already been seen. Contents will be ignored.\n", id);
                 node = NULL;
             }
@@ -356,7 +356,8 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             // Nothing to do, just skipping past these lines
         } else if(node != NULL && line < TIS_NODE_LINE_COUNT) {
             if(strlen(buf) > TIS_NODE_LINE_LENGTH) {
-                // TODO experiment: what does the game do in this case?
+                // TODO experiment: what does the game do in this case? -> truncates the line, even if code
+                // the game just truncates the line unconditionally
                 warn("Overlength line, continuing anyway:\n");
                 warn("    %.*s\n", BUFSIZE, buf);
             }
@@ -371,6 +372,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             int val = 0;
             int nargs = 0;
             if(tis->name == NULL) {
+                // the game ignores any title beyond the first
                 if((temp = strstr(buf, "##")) != NULL) { // Save title, if present
                     temp += 2; // skip past ##
                     temp = strtok(temp, " "); // strip whitespace
@@ -383,8 +385,8 @@ int init_nodes(tis_t* tis, char* sourcefile) {
             if((temp = strchr(buf, ':')) != NULL) { // Save and remove label, if present
                 *temp = '\0';
                 temp++; // temp now points just after label
-                node->code[line]->label = strdup(buf); // TODO strip whitespace? (but this would be invalid for real TIS), verify label is A-Z0-9~`$%^&*()_-+={}[]|\;"'<>,.?/,
-            } else {                                   // labels may be 18 chars (whole line + ':') but longest useful is 14 (for jmp <label>)??? off by one???
+                node->code[line]->label = strdup(buf); // TODO strip whitespace? (but rstrip would be invalid for real TIS), verify label is A-Z0-9~`$%^&*()_-+={}[]|\;"'<>,.?/,
+            } else {                                   // labels may be 17 chars (whole line + ':') but longest useful is 14 (for jmp <label>)
                 temp = buf;
             }
 
@@ -440,7 +442,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 node->code[line]->type = TIS_OP_TYPE_SWP;
                 nargs = 0;
             } else {
-                error("Unrecognized instruction \"%s\" on line %d of @%d\n", temp, line+1, id);
+                error("Unrecognized opcode \"%s\" on line %d of @%d\n", temp, line+1, id);
                 node->code[line]->type = TIS_OP_TYPE_INVALID;
                 nargs = 0;
             }
@@ -449,7 +451,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 if(temp == NULL) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE;
                 } else if(val == 1) { // labels are only valid as sources (...syntactically. semantically, they are a dst; syntactically, they are actually a src)
-                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // TODO experiment: are register keywords valid as labels? are numerics valid as labels?
+                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // TODO experiment: are register keywords valid as labels? are numerics valid as labels? -> yes to both
                     node->code[line]->src.label = strdup(temp); // whitespace is already stripped by strtok
                 } else if((val = strtol(temp, &temp2, 0), temp != temp2 && *temp2 == '\0')) { // constants are only valid as sources
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_CONSTANT;
@@ -479,7 +481,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->src.reg = TIS_REGISTER_LAST;
                 } else {
-                    error("Invalid first argument \"%s\" on line %d of @%d", temp, line+1, id);
+                    error("Invalid first operand \"%s\" on line %d of @%d", temp, line+1, id);
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
@@ -512,17 +514,18 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->dst.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->dst.reg = TIS_REGISTER_LAST;
                 } else {
-                    error("Invalid second argument \"%s\" on line %d of @%d", temp, line+1, id);
+                    error("Invalid second operand \"%s\" on line %d of @%d", temp, line+1, id);
                     node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
 
             // ensure nothing else (except whitespace) is on this line
             while((temp = strtok(NULL, " ,")) != NULL) {
-                // TODO experiment: what does the game do in this case?
-                error("Extra token \"%s\" on line %d of @%d\n", temp, line+1, id);
+                // TODO experiment: what does the game do in this case? -> gives error, refuses to run
+                error("Extra operand \"%s\" on line %d of @%d\n", temp, line+1, id);
             }
         } else {
+            // the game just ignores extra lines
             if(id < 0) {
                 warn("Ignoring out-of-node data at top of file:\n");
             } else {
