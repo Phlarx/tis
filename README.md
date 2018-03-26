@@ -34,6 +34,10 @@ It will terminate upon an `HCF`, as described above, or if the system is deemed 
 The system is inactive if all nodes are either IDLE, meaning that they contain no instructions, or in a WAIT state. The system is quiescent if it is inactive in the same manner for two cycles in a row.
 Note that a node running the instruction `JRO 0` can never be WAIT or IDLE, and therefore will prevent automatic termination.
 
+A minor difference in code file parsing is that if an out-of-bounds node is encountered, e.g. node @10 when there is only slots for @0 through @9, this emulator will simply ignore that node's contents.
+The game would attempt to fit that extra node's contents within whatever the last valid node is, in an attempt for data preservation.
+This emulator does not edit the code file, and as such has no need for such preservation.
+
 ### File format
 (describe file format, allowances, limits, errors, etc.)
 

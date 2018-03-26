@@ -307,8 +307,8 @@ int init_nodes(tis_t* tis, char* sourcefile) {
         }
     }
 
-    char buf[BUFSIZE];
-    int id = -1, preid = -1;
+    char buf[BUFSIZE], extra;
+    int id = -1, preid = -1, nfields;
     int line = TIS_NODE_LINE_COUNT; // start with an out-of-bounds value
     tis_node_t* node = NULL;
     while(fgets(buf, BUFSIZE, source) != NULL) {
@@ -326,10 +326,14 @@ int init_nodes(tis_t* tis, char* sourcefile) {
 
         spam("Parse line:  %.*s\n", BUFSIZE, buf);
 
-        if(buf[0] == '\0') {
+        if(buf[0] == '\0' && line >= TIS_NODE_LINE_COUNT) {
             // empty line; ignore
-            // (when game writes saves, it adds them at end of node, but doesn't require them to parse)
-        } else if(sscanf(buf, "@%d", &id) == 1) { // TODO check for extra data on this line (experiment: what does the game do with this?) -> it treats it as unparseable and ignores the whole line
+            // (when game writes saves, it adds an extra blank line at the end of each node, but doesn't require them for parsing)
+        } else if((nfields = sscanf(buf, "@%d %c", &id, &extra)) >= 1) {
+            if(nfields > 1) {
+                // TODO strict mode: the game just ignores this whole line
+                error("Extra data appears on specifier line for @%d. Continuing anyway.\n", id);
+            }
             if(id < preid) {
                 // the game handles reorderings silently
                 warn("Nodes appear out of order, @%d is after @%d. Continuing anyway.\n", id, preid);
@@ -347,17 +351,17 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 // the game just adds the code to the last node, we ignore it instead
                 warn("@%d is out-of-bounds for the current layout. Contents will be ignored.\n", id);
             } else if(node->code[0] != NULL) {
-                // TODO experiment: what does the game do in this case? -> comment below, change code to match
-                // the game replaces the previous node contents
-                warn("@%d has already been seen. Contents will be ignored.\n", id);
-                node = NULL;
+                // replace the previous node contents with the new
+                warn("@%d has already been seen. Previous contents will be discarded and replaced.\n", id);
+                for(int idx = 0; idx < TIS_NODE_LINE_COUNT; idx++) {
+                    safe_free_op(node->code[idx]);
+                }
             }
         } else if(node == NULL && line < TIS_NODE_LINE_COUNT) {
             // Nothing to do, just skipping past these lines
         } else if(node != NULL && line < TIS_NODE_LINE_COUNT) {
             if(strlen(buf) > TIS_NODE_LINE_LENGTH) {
-                // TODO experiment: what does the game do in this case? -> truncates the line, even if code
-                // the game just truncates the line unconditionally
+                // TODO strict mode: truncate the line unconditionally
                 warn("Overlength line, continuing anyway:\n");
                 warn("    %.*s\n", BUFSIZE, buf);
             }
@@ -451,7 +455,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                 if(temp == NULL) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE;
                 } else if(val == 1) { // labels are only valid as sources (...syntactically. semantically, they are a dst; syntactically, they are actually a src)
-                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // TODO experiment: are register keywords valid as labels? are numerics valid as labels? -> yes to both
+                    node->code[line]->src.type = TIS_OP_ARG_TYPE_LABEL; // note: the label type overrides everything else; "MOV" and "16" are both valid as labels
                     node->code[line]->src.label = strdup(temp); // whitespace is already stripped by strtok
                 } else if((val = strtol(temp, &temp2, 0), temp != temp2 && *temp2 == '\0')) { // constants are only valid as sources
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_CONSTANT;
@@ -525,11 +529,11 @@ int init_nodes(tis_t* tis, char* sourcefile) {
 
             // ensure nothing else (except whitespace) is on this line
             while((temp = strtok(NULL, " ,")) != NULL) {
-                // TODO experiment: what does the game do in this case? -> gives error, refuses to run
+                // TODO strict mode: return INIT_FAIL
                 error("Extra operand \"%s\" on line %d of @%d\n", temp, line+1, id);
             }
         } else {
-            // the game just ignores extra lines
+            // the game just ignores most extra lines, we ignore all
             if(id < 0) {
                 warn("Ignoring out-of-node data at top of file:\n");
             } else {
