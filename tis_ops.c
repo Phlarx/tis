@@ -9,7 +9,7 @@ tis_op_result_t step(tis_t* tis, tis_node_t* node, tis_op_t* op) {
     if(node->type == TIS_NODE_TYPE_COMPUTE) {
         tis_op_result_t result = TIS_OP_RESULT_OK;
         char* jump = NULL;
-        int value = 0;
+        int value = 0, idx;
         spam("Run instruction %s on node %s\n", op_to_string(op->type), node_name(node));
         // TODO assert correct nargs? This is checked when parsing though...
         switch(op->type) {
@@ -60,15 +60,41 @@ jump_label:
                 break;
             case TIS_OP_TYPE_JRO:
                 if(op->src.type == TIS_OP_ARG_TYPE_CONSTANT) {
-                    node->index = (node->index + op->src.con - 1) % TIS_NODE_LINE_COUNT;
+                    value = op->src.con;
                 } else if(op->src.type == TIS_OP_ARG_TYPE_REGISTER) {
                     result = read_register(tis, node, op->src.reg, &value);
-                    if(result == TIS_OP_RESULT_OK) {
-                        node->index = (node->index + value) % TIS_NODE_LINE_COUNT;
-                    }
                 } else {
                     error("INTERNAL: Invalid arg type for JRO (%d) on node %s\n", op->src.type, node_name(node));
                     result = TIS_OP_RESULT_ERR;
+                }
+                if(result == TIS_OP_RESULT_OK) {
+                    spam("Relative jump by %d from line %d on node %s\n", value, node->index, node_name(node));
+                    idx = node->index;
+                    if(value >= 0) {
+                        for(; value > 0; value--) {
+                            do {
+                                idx = (idx + 1) % TIS_NODE_LINE_COUNT;
+                            } while(node->code[idx] == NULL || node->code[idx]->type == TIS_OP_TYPE_INVALID);
+                            if(idx <= node->index) {
+                                break; // JRO doesn't wrap (also catches nodes with only one instruction)
+                            } else {
+                                node->index = idx;
+                            }
+                        }
+                    } else {
+                        for(; value < 0; value++) {
+                            do {
+                                idx = (idx + TIS_NODE_LINE_COUNT - 1) % TIS_NODE_LINE_COUNT; // keep idx positive
+                            } while(node->code[idx] == NULL || node->code[idx]->type == TIS_OP_TYPE_INVALID);
+                            if(idx >= node->index) {
+                                break; // JRO doesn't wrap (also catches nodes with only one instruction)
+                            } else {
+                                node->index = idx;
+                            }
+                        }
+                    }
+                    spam("Relative jump landed at line %d on node %s\n", node->index, node_name(node));
+                    node->index--; // account for the instruction pointer increment later on
                 }
                 break;
             case TIS_OP_TYPE_MOV:
@@ -131,14 +157,14 @@ jump_label:
         }
         if(jump != NULL) {
             spam("Jumping to label %.20s on node %s\n", jump, node_name(node));
-            int i = 0;
-            for(; i < TIS_NODE_LINE_COUNT; i++) {
-                if(node->code[i]->label != NULL && strcmp(jump, node->code[i]->label) == 0) {
-                    node->index = i-1; // jump to instuction *before* label
+            idx = 0;
+            for(; idx < TIS_NODE_LINE_COUNT; idx++) {
+                if(node->code[idx]->label != NULL && strcmp(jump, node->code[idx]->label) == 0) {
+                    node->index = idx - 1; // jump to instuction *before* label to account for the instruction pointer increment later on
                     break;
                 }
             }
-            if(i == TIS_NODE_LINE_COUNT) {
+            if(idx == TIS_NODE_LINE_COUNT) {
                 // unable to jump to missing label
                 error("Label %.20s not found in node %s, unable to jump\n", jump, node_name(node));
                 result = TIS_OP_RESULT_ERR;
