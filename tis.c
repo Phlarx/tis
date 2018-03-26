@@ -455,7 +455,11 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->src.label = strdup(temp); // whitespace is already stripped by strtok
                 } else if((val = strtol(temp, &temp2, 0), temp != temp2 && *temp2 == '\0')) { // constants are only valid as sources
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_CONSTANT;
-                    node->code[line]->src.con = val;
+                    node->code[line]->src.con = clamp(val);
+                    if(node->code[line]->src.con != val) {
+                        // produce a warning if the value is clamped
+                        warn("Numeric operand %d is clamped to %d on line %d of @%d\n", val, clamp(val), line+1, id);
+                    }
                 } else if(strcasecmp(temp, "ACC") == 0) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->src.reg = TIS_REGISTER_ACC;
@@ -481,7 +485,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->src.reg = TIS_REGISTER_LAST;
                 } else {
-                    error("Invalid first operand \"%s\" on line %d of @%d", temp, line+1, id);
+                    error("Invalid first operand \"%s\" on line %d of @%d\n", temp, line+1, id);
                     node->code[line]->src.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
@@ -514,7 +518,7 @@ int init_nodes(tis_t* tis, char* sourcefile) {
                     node->code[line]->dst.type = TIS_OP_ARG_TYPE_REGISTER;
                     node->code[line]->dst.reg = TIS_REGISTER_LAST;
                 } else {
-                    error("Invalid second operand \"%s\" on line %d of @%d", temp, line+1, id);
+                    error("Invalid second operand \"%s\" on line %d of @%d\n", temp, line+1, id);
                     node->code[line]->dst.type = TIS_OP_ARG_TYPE_NONE; // This error also catches BAK usage
                 }
             }
