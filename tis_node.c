@@ -141,7 +141,12 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
         return TIS_OP_RESULT_READ_WAIT;
     } else if(reg == TIS_REGISTER_UP) {
         if(node->row == 0) { // if reading up from top row, read input instead
-            return input(tis->inputs[node->col], value); // TODO experiment: can io read happen every tick, or only every other? -> read is every other, starting with a prep cycle
+            if(tis->inputs[node->col] == NULL || tis->inputs[node->col]->writereg != TIS_REGISTER_DOWN) {
+                return TIS_OP_RESULT_READ_WAIT;
+            }
+            *value = tis->inputs[node->col]->writebuf;
+            tis->inputs[node->col]->writereg = TIS_REGISTER_NIL;
+            return TIS_OP_RESULT_OK;
         }
         tis_node_t* neigh = tis->nodes[(node->row-1)*tis->cols + node->col];
         if(neigh == NULL || !(neigh->writereg == TIS_REGISTER_DOWN || neigh->writereg == TIS_REGISTER_ANY)) {
@@ -202,14 +207,9 @@ tis_op_result_t read_port_register_maybe(tis_t* tis, tis_node_t* node, tis_regis
  * TODO future enhancement to randomly order, giving a source of randomness
  */
 tis_op_result_t write_port_register_maybe(tis_t* tis, tis_node_t* node, tis_register_t reg, int value) {
+    (void)tis;
+    (void)reg;
     node->writebuf = value;
-    // if writing down from bottom row, write output instead, and return OK
-    if((reg == TIS_REGISTER_DOWN || reg == TIS_REGISTER_ANY) && node->row+1 == tis->rows) {
-        spam("Write value %d to output index %zu\n", value, node->col);
-        return output(tis->outputs[node->col], value);
-    }
-    // TODO experiment: does writing to output claim 1 or 2 ticks? (move to other claims 2) -> it's 2
-    // TODO experiment: does writing to ANY favor outputs or other nodes? -> no, it acts like another row of nodes below
     return TIS_OP_RESULT_WRITE_WAIT;
 }
 tis_op_result_t write_port_register_defer_maybe(tis_t* tis, tis_node_t* node, tis_register_t reg) {

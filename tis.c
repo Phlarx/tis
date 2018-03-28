@@ -8,6 +8,7 @@
 
 #include "tis_types.h"
 #include "tis_node.h"
+#include "tis_io.h"
 
 #define INIT_OK 0
 #define INIT_FAIL 1
@@ -85,11 +86,11 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
 
     tis->size = tis->rows*tis->cols;
 
-    if(tis->size == 0) {
+    if(tis->cols == 0) {
         if(layout != NULL) {
             fclose(layout);
         }
-        error("Cannot initialize with zero rows or columns\n"); // But zero rows are fine, right? TODO this would mean I have to run the outputs separately from the bottom row
+        error("Cannot initialize with zero columns\n"); // But zero rows are fine, it works as a translator: printf "hello" | ./tis -l /dev/null "0 1 I0 ASCII - O0 NUMERIC - 10"
         return INIT_FAIL;
     }
 
@@ -164,7 +165,9 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 }
                 mode = 0;
                 tis->inputs[index] = calloc(1, sizeof(tis_io_node_t));
+                tis->inputs[index]->col = index;
                 tis->inputs[index]->type = TIS_IO_TYPE_INVALID;
+                tis->inputs[index]->writereg = TIS_REGISTER_INVALID;
             } else if(fscanf(layout, " O%zu ", &index) == 1) {
                 debug("Found an output for index %zu\n", index);
                 if(index >= tis->cols) {
@@ -174,6 +177,9 @@ int init_layout(tis_t* tis, char* layoutfile, int layoutmode) {
                 }
                 mode = 1;
                 tis->outputs[index] = calloc(1, sizeof(tis_io_node_t));
+                tis->outputs[index]->col = index;
+                tis->outputs[index]->type = TIS_IO_TYPE_INVALID;
+                tis->outputs[index]->writereg = TIS_REGISTER_INVALID;
             } else if(fscanf(layout, " %"STR(BUFSIZE)"s ", buf) == 1) { // The format string is " %128s ", but changes with BUFSIZE
                 switch(mode) {
                     case 0:
@@ -279,13 +285,17 @@ skip_io_token:
         }
         // set first input to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->inputs[0] = calloc(1, sizeof(tis_io_node_t));
+        tis->inputs[0]->col = 0;
         tis->inputs[0]->type = opts.default_i_type;
         tis->inputs[0]->file.file = stdin;
+        tis->inputs[0]->writereg = TIS_REGISTER_INVALID;
         // set last output to TIS_IO_TYPE_IOSTREAM_NUMERIC
         tis->outputs[tis->cols - 1] = calloc(1, sizeof(tis_io_node_t));
+        tis->outputs[tis->cols - 1]->col = tis->cols - 1;
         tis->outputs[tis->cols - 1]->type = opts.default_o_type;
         tis->outputs[tis->cols - 1]->file.file = stdout;
         tis->outputs[tis->cols - 1]->file.sep = '\n';
+        tis->outputs[tis->cols - 1]->writereg = TIS_REGISTER_INVALID;
     }
 
     return INIT_OK;
@@ -577,22 +587,69 @@ void pre_exit() {
  */
 int tick(tis_t* tis) {
     int quiescent = 1;
-    char deferred[tis->size];
+    int offset = tis->cols;
+    char deferred_all[tis->size + 2*offset];
+    char *deferred_i = deferred_all;
+    char *deferred_n = deferred_all + offset;
+    char *deferred_o = deferred_all + offset + tis->size;
+
+    // First stage: run most things
+    for(size_t i = 0; i < tis->cols; i++) {
+        if(tis->inputs[i] != NULL) {
+            tis_node_state_t state = run_input(tis, tis->inputs[i]);
+            deferred_i[i] = (state == TIS_NODE_STATE_WRITE_WAIT);
+            if(!deferred_i[i]) {
+                quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->inputs[i]->laststate;
+                tis->inputs[i]->laststate = state;
+            }
+        }
+    }
     for(size_t i = 0; i < tis->size; i++) {
         tis_node_state_t state = run(tis, tis->nodes[i]);
-        deferred[i] = (state == TIS_NODE_STATE_WRITE_WAIT);
-        if(!deferred[i]) {
+        deferred_n[i] = (state == TIS_NODE_STATE_WRITE_WAIT);
+        if(!deferred_n[i]) {
             quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->nodes[i]->laststate;
             tis->nodes[i]->laststate = state;
         }
     }
+    for(size_t i = 0; i < tis->cols; i++) {
+        if(tis->outputs[i] != NULL) {
+            tis_node_state_t state = run_output(tis, tis->outputs[i]);
+            deferred_o[i] = (state == TIS_NODE_STATE_WRITE_WAIT);
+            if(!deferred_o[i]) {
+                quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->outputs[i]->laststate;
+                tis->outputs[i]->laststate = state;
+            }
+        }
+    }
+
+    // Second stage: run deferrals
+    for(size_t i = 0; i < tis->cols; i++) {
+        if(tis->inputs[i] != NULL) {
+            if(deferred_i[i]) {
+                tis_node_state_t state = run_input_defer(tis, tis->inputs[i]);
+                quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->inputs[i]->laststate;
+                tis->inputs[i]->laststate = state;
+            }
+        }
+    }
     for(size_t i = 0; i < tis->size; i++) {
-        if(deferred[i]) {
+        if(deferred_n[i]) {
             tis_node_state_t state = run_defer(tis, tis->nodes[i]);
             quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->nodes[i]->laststate;
             tis->nodes[i]->laststate = state;
         }
     }
+    for(size_t i = 0; i < tis->cols; i++) {
+        if(tis->outputs[i] != NULL) {
+            if(deferred_o[i]) {
+                tis_node_state_t state = run_output_defer(tis, tis->outputs[i]);
+                quiescent = quiescent && state != TIS_NODE_STATE_RUNNING && state == tis->outputs[i]->laststate;
+                tis->outputs[i]->laststate = state;
+            }
+        }
+    }
+
     spam("System quiescent? %d\n", quiescent);
     return quiescent;
 }

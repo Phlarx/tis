@@ -179,6 +179,7 @@ typedef struct tis_node {
 
 typedef struct tis_io_node {
     tis_io_type_t type;
+    size_t col;
     char* name; // optional
     union {
         struct {
@@ -191,6 +192,9 @@ typedef struct tis_io_node {
             int arg; // either increment or multiplier
         } seq;
     };
+    int writebuf; // (used by communicative types)
+    tis_register_t writereg; // UpDownLeftRightAny -> ready, Nil -> complete, Invalid -> quiet (used by all types)
+    tis_node_state_t laststate; // managed externally
 } tis_io_node_t;
 
 typedef struct tis {
